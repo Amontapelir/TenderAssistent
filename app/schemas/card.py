@@ -13,6 +13,7 @@ from app.domain.customer_history import CustomerHistory
 from app.domain.okpd import AreaMatch
 from app.domain.prices import PriceEstimate
 from app.domain.profile import CompanyProfile
+from app.sources.documents import StoredDoc
 
 SCHEMA_VERSION = 1
 
@@ -95,6 +96,44 @@ class AnalysisCard(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     dropped_findings: list[DroppedFinding] = Field(default_factory=list)
     model: str = ""  # какая модель читала документацию; пусто, если не читала
+
+
+class DocumentState(BaseModel):
+    title: str
+    group: str
+    group_date: str
+    role: str
+    role_label: str
+    url: str
+    stored: Optional[StoredDoc] = None  # None: файл ещё не скачан
+    error: str = ""  # почему файл не получен при последней попытке
+
+
+class SkippedDocument(BaseModel):
+    title: str
+    group: str
+    reason: str
+
+
+class DocumentsFile(BaseModel):
+    schema_version: int = SCHEMA_VERSION
+    regn: str
+    tender_title: str
+    items: list[DocumentState]
+    skipped: list[SkippedDocument]
+    readable: int  # из скольких файлов получен текст
+    total_chars: int
+    limitations: list[str] = Field(default_factory=list)
+
+
+class ModelCheck(BaseModel):
+    ok: bool
+    model: str
+    answer: str
+    prompt_tokens: int
+    completion_tokens: int
+    attempts: int
+    seconds: float
 
 
 class ProfileFile(BaseModel):

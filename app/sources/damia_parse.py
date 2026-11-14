@@ -6,7 +6,7 @@
 from typing import Any
 
 from app.domain import okpd
-from app.domain.models import Contract, TenderBrief
+from app.domain.models import Bid, Contract, DocRef, TenderBrief, TenderCard, TenderContract
 
 LAWS = ("44", "223", "615")
 
@@ -54,6 +54,72 @@ def parse_contracts(response: Any, inn: str, role: str) -> tuple[list[Contract],
             status=_text((item.get("Статус") or {}).get("Статус")),
         ))
     return contracts, bad
+
+
+def parse_tender(response: Any, regn: str) -> TenderCard | None:
+    """Ответ метода zakupka. None, если закупки в ответе нет."""
+    item = response.get(regn) if isinstance(response, dict) else None
+    if not isinstance(item, dict) or not item:
+        return None
+    customers = item.get("Заказчик")
+    customer = customers[0] if isinstance(customers, list) and customers else (
+        customers if isinstance(customers, dict) else {})
+    product = item.get("Продукт") or {}
+    codes = [_text(product.get("ОКПД"))] + [
+        _text(o.get("ОКПД")) for o in product.get("ОбъектыЗак") or [] if isinstance(o, dict)]
+
+    documents: list[DocRef] = []
+    for group in item.get("Документы") or []:
+        if not isinstance(group, dict):
+            continue
+        for file in group.get("Файлы") or []:
+            if isinstance(file, dict):
+                documents.append(DocRef(
+                    group=_text(group.get("Название")),
+                    group_date=_text(group.get("ДатаРазм")),
+                    active=_text(group.get("Редакция")).lower() == "действующая",
+                    title=_text(file.get("Название")),
+                    url=_text(file.get("Url")),
+                ))
+
+    bids = tuple(
+        Bid(_text(b.get("Номер")), _num(b.get("Сумма")))
+        for b in (item.get("Протокол") or {}).get("Заявки") or [] if isinstance(b, dict)
+    )
+    contracts: list[TenderContract] = []
+    for contract_regn, c in (item.get("Контракты") or {}).items():
+        if not isinstance(c, dict):
+            continue
+        suppliers = [s for kind in ("ЮЛ", "ИП", "ФЛ")
+                     for s in (c.get("Поставщики") or {}).get(kind) or [] if isinstance(s, dict)]
+        contracts.append(TenderContract(
+            regn=str(contract_regn),
+            signed=_text(c.get("ДатаПодп")),
+            price=_num((c.get("Цена") or {}).get("Сумма")),
+            supplier_inns=tuple(_text(s.get("ИНН")) for s in suppliers if _text(s.get("ИНН"))),
+            supplier_names=tuple(_text(s.get("НаимСокр")) or _text(s.get("НаимПолн"))
+                                 for s in suppliers),
+        ))
+
+    return TenderCard(
+        regn=regn,
+        law=str(item.get("ФЗ") or ""),
+        title=_text(product.get("Название")),
+        region=_text(item.get("Регион")),
+        customer_inn=_text(customer.get("ИНН")),
+        customer_name=_text(customer.get("НаимСокр")) or _text(customer.get("НаимПолн")),
+        placing_way=_text(item.get("СпособРазм")),
+        initial_price=_num((item.get("НачЦена") or {}).get("Сумма")),
+        published=_text(item.get("ДатаПубл")),
+        deadline=_text(item.get("ДатаОконч")),
+        status=_text((item.get("Статус") or {}).get("Статус")),
+        okpd_codes=tuple(dict.fromkeys(c for c in map(okpd.normalize, codes) if c)),
+        bid_security=_num((item.get("ОбеспУчаст") or {}).get("Сумма")),
+        contract_security=_num((item.get("ОбеспИсп") or {}).get("Сумма")),
+        documents=tuple(documents),
+        bids=bids,
+        contracts=tuple(contracts),
+    )
 
 
 def has_next_page(response: Any) -> bool:

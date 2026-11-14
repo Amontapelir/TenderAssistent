@@ -7,13 +7,16 @@ from pydantic import BaseModel, Field
 from app import __version__, config, limits
 from app.api.access import is_local_request
 from app.pipeline import steps
-from app.schemas.card import ProfileFile, TendersFile
+from app.schemas.card import DocumentsFile, ModelCheck, ProfileFile, TendersFile
 from app.sources.damia import DamiaClient, DamiaError, QuotaExceeded, QuotaLine
+from app.sources.documents import Downloader
+from app.sources.llm import LlmClient, LlmError, LlmNotConfigured, LlmRateLimited
 from app.storage.files import Store
 
 router = APIRouter(prefix="/api")
 
 _INN = re.compile(r"^\d{10}(\d{2})?$")
+_REGN = re.compile(r"^\d{8,25}$")
 _DATE = r"^\d{4}-\d{2}-\d{2}$"
 
 
@@ -31,11 +34,32 @@ def local_only(request: Request) -> None:
         raise HTTPException(403, "Это действие доступно только с компьютера, где запущено приложение.")
 
 
+def get_downloader() -> Downloader:
+    return Downloader(config.data_dir())
+
+
+def _check_regn(regn: str) -> None:
+    if not _REGN.match(regn):
+        raise HTTPException(422, "Номер закупки должен состоять только из цифр.")
+
+
+class FetchDocuments(BaseModel):
+    network: bool = False  # разрешить запрос карточки закупки к API, если её нет на диске
+
+
 def _run(action):
     try:
         return action()
     except steps.NotCached as e:
         raise HTTPException(409, str(e))
+    except steps.NotFound as e:
+        raise HTTPException(404, str(e))
+    except LlmNotConfigured as e:
+        raise HTTPException(409, str(e))
+    except LlmRateLimited as e:
+        raise HTTPException(429, str(e))
+    except LlmError as e:
+        raise HTTPException(502, str(e))
     except QuotaExceeded as e:
         raise HTTPException(429, str(e))
     except DamiaError as e:
@@ -104,6 +128,31 @@ def profile_build(body: BuildProfile, client: DamiaClient = Depends(get_client),
         raise HTTPException(422, "ИНН должен состоять из 10 или 12 цифр.")
     return _run(lambda: steps.build_profile(client, store, inn, network=body.network,
                                             max_pages=body.max_pages))
+
+
+@router.get("/tenders/{regn}/documents", response_model=DocumentsFile)
+def documents(regn: str, client: DamiaClient = Depends(get_client),
+              downloader: Downloader = Depends(get_downloader)) -> DocumentsFile:
+    """Отобранные файлы закупки и их состояние. Ничего не скачивает и квоту не тратит."""
+    _check_regn(regn)
+    return _run(lambda: steps.tender_documents(client, downloader, regn))
+
+
+@router.post("/tenders/{regn}/documents/fetch", response_model=DocumentsFile,
+             dependencies=[Depends(local_only)])
+def documents_fetch(regn: str, body: FetchDocuments, client: DamiaClient = Depends(get_client),
+                    downloader: Downloader = Depends(get_downloader)) -> DocumentsFile:
+    """Скачивает отобранные файлы с zakupki.gov.ru и извлекает текст."""
+    _check_regn(regn)
+    return _run(lambda: steps.tender_documents(client, downloader, regn, network=body.network,
+                                               download=True))
+
+
+@router.post("/model/check", response_model=ModelCheck, dependencies=[Depends(local_only)])
+def model_check() -> ModelCheck:
+    """Один короткий запрос к модели: проверка ключа и ответа в JSON."""
+    return _run(lambda: steps.check_model(LlmClient(
+        config.setting("LLM_BASE_URL"), config.setting("LLM_API_KEY"), config.setting("LLM_MODEL"))))
 
 
 @router.get("/tenders", response_model=TendersFile)
