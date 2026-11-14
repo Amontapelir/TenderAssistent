@@ -41,9 +41,14 @@ def _get(client: DamiaClient, network: bool, method: str, **params: str) -> Repl
     return reply
 
 
-def build_profile(client: DamiaClient, store: Store, inn: str, *, network: bool = False,
-                  max_pages: int = 1) -> ProfileFile:
-    """Профиль из контрактов компании как поставщика (44-ФЗ)."""
+def company_contracts(client: DamiaClient, inn: str, *, network: bool = False, max_pages: int = 1,
+                      saved_only_after_first: bool = False
+                      ) -> tuple[list[Contract], list[Source], list[str]]:
+    """Контракты компании как поставщика (44-ФЗ), свежие вперёд, по страницам.
+
+    saved_only_after_first: если следующей страницы нет на диске, а запрос не разрешён,
+    остановиться на прочитанном, а не отказывать.
+    """
     pages = max(1, min(max_pages, limits.PROFILE_MAX_PAGES))
     contracts: list[Contract] = []
     sources: list[Source] = []
@@ -54,7 +59,12 @@ def build_profile(client: DamiaClient, store: Store, inn: str, *, network: bool 
         params = {"inn": inn, "fz": "44", "role": "0", "format": "2"}
         if page > 1:
             params["page"] = str(page)
-        reply = _get(client, network, "contracts", **params)
+        try:
+            reply = _get(client, network, "contracts", **params)
+        except NotCached:
+            if page == 1 or not saved_only_after_first:
+                raise
+            break
         chunk, bad = damia_parse.parse_contracts(reply.data, inn, "0")
         contracts += chunk
         bad_total += bad
@@ -64,20 +74,26 @@ def build_profile(client: DamiaClient, store: Store, inn: str, *, network: bool 
             used_for=["profile"],
             comment=f"Получено {reply.fetched_at}, записей: {len(chunk)}.",
         ))
-        more = damia_parse.has_next_page(reply.data)
+        more = damia_parse.contracts_page_full(reply.data, inn)
         if not chunk or not more:
             break
     if more:
         notes.append(
             f"Прочитано страниц контрактов: {len(sources)} (предел {limits.PROFILE_MAX_PAGES}). "
-            "У компании есть более ранние контракты, в профиль они не вошли."
+            "Последняя прочитанная страница заполнена целиком: у компании, вероятно, есть "
+            "более ранние контракты, в профиль они не вошли."
         )
     if bad_total:
         notes.append(f"Записей, которые не удалось разобрать: {bad_total}.")
     notes.append("Учтены только контракты по 44-ФЗ.")
+    return list({c.regn: c for c in contracts}.values()), sources, notes
 
-    seen: dict[str, Contract] = {c.regn: c for c in contracts}
-    built = profile_domain.build_profile(inn, list(seen.values()))
+
+def build_profile(client: DamiaClient, store: Store, inn: str, *, network: bool = False,
+                  max_pages: int = 1) -> ProfileFile:
+    """Профиль из контрактов компании как поставщика (44-ФЗ)."""
+    contracts, sources, notes = company_contracts(client, inn, network=network, max_pages=max_pages)
+    built = profile_domain.build_profile(inn, contracts)
     built.limitations.extend(notes)
     result = ProfileFile(generated_at=_now(), profile=built, sources=sources)
     store.save("profile", result)

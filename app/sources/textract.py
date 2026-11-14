@@ -1,6 +1,7 @@
 """Определение формата файла и извлечение текста.
 
-Поддержан Word (.docx): абзацы и таблицы в порядке следования. Остальные форматы
+Поддержан Word (.docx): абзацы и таблицы в порядке следования, и архив zip, в котором
+лежат файлы Word (вложенные архивы не раскрываются). Остальные форматы
 распознаются и называются, но текст из них не извлекается: вызывающий код обязан
 показать это пользователю.
 """
@@ -11,7 +12,7 @@ import xml.etree.ElementTree as ET
 from app import limits
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-READABLE = ("docx", "text")
+READABLE = ("docx", "text", "zip")
 
 
 class Unreadable(RuntimeError):
@@ -38,7 +39,7 @@ def detect(data: bytes) -> str:
     if head.startswith(b"{\\rtf"):
         return "rtf"
     if head.startswith(b"Rar!") or head.startswith(b"7z\xbc\xaf"):
-        return "zip"
+        return "archive"
     sample = data[:2000].lstrip().lower()
     if sample.startswith(b"<!doctype html") or sample.startswith(b"<html"):
         return "html"
@@ -51,7 +52,7 @@ def detect(data: bytes) -> str:
 
 _NAMES = {
     "pdf": "PDF", "doc": "старый формат Word (.doc)", "rtf": "RTF", "xlsx": "таблица Excel",
-    "zip": "архив", "html": "веб-страница вместо файла", "unknown": "неизвестный формат",
+    "zip": "архив", "archive": "архив RAR или 7z", "html": "веб-страница вместо файла", "unknown": "неизвестный формат",
 }
 
 
@@ -60,7 +61,40 @@ def extract(data: bytes, kind: str) -> str:
         return _docx(data)
     if kind == "text":
         return data.decode("utf-8", "replace")
+    if kind == "zip":
+        return _zip(data)
     raise Unreadable(f"Формат не поддержан: {_NAMES.get(kind, kind)}. Текст не извлечён.")
+
+
+def _zip(data: bytes) -> str:
+    """Текст всех файлов Word из архива. Подписи, копии в PDF и прочее пропускаются."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        entries = [i for i in archive.infolist() if not i.is_dir()]
+    except zipfile.BadZipFile:
+        raise Unreadable("Архив повреждён. Файл не прочитан.") from None
+    if len(entries) > limits.ARCHIVE_MAX_FILES:
+        raise Unreadable(f"В архиве {len(entries)} файлов, предел {limits.ARCHIVE_MAX_FILES}. "
+                         "Архив не прочитан.")
+    texts: list[str] = []
+    for info in entries:
+        if info.file_size > limits.DOC_MAX_BYTES:
+            continue
+        try:
+            with archive.open(info) as stream:
+                inner = stream.read(limits.DOC_MAX_BYTES + 1)
+        except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError):
+            continue  # зашифрованный или повреждённый файл
+        if len(inner) > limits.DOC_MAX_BYTES or detect(inner) != "docx":
+            continue
+        try:
+            texts.append(_docx(inner))
+        except Unreadable:
+            continue
+    if not texts:
+        raise Unreadable(f"В архиве нет файлов Word, которые удалось прочитать "
+                         f"(файлов в архиве: {len(entries)}). Текст не извлечён.")
+    return "\n\n".join(texts)
 
 
 def _docx(data: bytes) -> str:

@@ -7,6 +7,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.domain.backtest import Report, Scored
 from app.domain.candidates import Candidate
 from app.domain.chance import Chance
 from app.domain.customer_history import CustomerHistory
@@ -173,3 +174,39 @@ class TendersFile(BaseModel):
     by_law: dict[str, int]
     items: list[Candidate]
     limitations: list[str] = Field(default_factory=list)
+
+
+class BacktestFile(BaseModel):
+    """Проверка правил оценки на прошлых закупках."""
+
+    schema_version: int = SCHEMA_VERSION
+    generated_at: str
+    report: Report
+    items: list[Scored]  # каждая оценённая закупка
+    sources: list[Source]
+    limitations: list[str] = Field(default_factory=list)
+
+
+class ExportCard(BaseModel):
+    """Строка оглавления пакета: одна карточка анализа."""
+
+    regn: str
+    title: str
+    customer: str
+    initial_price: float
+    chance_level: str
+    range_low: Optional[int]
+    range_high: Optional[int]
+    requirements: int
+    file: str
+
+
+class ExportIndex(BaseModel):
+    """Оглавление пакета для веб-версии."""
+
+    schema_version: int = SCHEMA_VERSION
+    generated_at: str
+    company_inn: str
+    files: list[str]  # все файлы пакета, пути относительно оглавления
+    cards: list[ExportCard]
+    missing: list[str] = Field(default_factory=list)  # чего в пакете нет и почему

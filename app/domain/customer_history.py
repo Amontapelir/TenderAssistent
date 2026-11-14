@@ -69,13 +69,15 @@ def summarize(
     tender_codes: Sequence[str] = (),
     tender_title: str = "",
     exclude_tender: str = "",
+    before: str = "",
     details: Optional[Mapping[str, Contract]] = None,
     company_contracts: Sequence[Contract] = (),
 ) -> CustomerHistory:
     """contracts: список контрактов заказчика. details: контракты, по которым известен поставщик.
 
     exclude_tender: номер анализируемой закупки. Её собственный контракт в историю не входит,
-    иначе оценка знала бы исход.
+    иначе оценка знала бы исход. before: дата ГГГГ-ММ-ДД; контракты, опубликованные в этот день
+    и позже, в историю не входят (для закупок, приём заявок по которым уже закончился).
     """
     details = details or {}
     limitations: list[str] = []
@@ -83,6 +85,8 @@ def summarize(
     rows: list[Contract] = []
     for c in contracts:
         if c.customer_inn != customer_inn or (exclude_tender and c.tender_regn == exclude_tender):
+            continue
+        if before and c.published >= before:
             continue
         known = details.get(c.regn) or own.get(c.regn)
         if known and known.supplier_inns:

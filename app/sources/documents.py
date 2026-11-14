@@ -113,6 +113,11 @@ class Downloader:
             return None
         return StoredDoc(**meta)
 
+    def reread(self, regn: str, doc: StoredDoc) -> StoredDoc:
+        """Заново извлекает текст из уже скачанного файла (сеть не нужна)."""
+        data = (self._dir(regn) / f"{doc.id}.bin").read_bytes()
+        return self.store(regn, doc.url, doc.title, doc.role, data, doc.file_name)
+
     def text(self, regn: str, doc: StoredDoc) -> str:
         return (self._dir(regn) / f"{doc.id}.txt").read_text(encoding="utf-8")
 

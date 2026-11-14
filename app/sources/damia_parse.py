@@ -5,6 +5,7 @@
 """
 from typing import Any
 
+from app import limits
 from app.domain import okpd
 from app.domain.models import Bid, Contract, DocRef, TenderBrief, TenderCard, TenderContract
 
@@ -149,6 +150,12 @@ def parse_tender(response: Any, regn: str) -> TenderCard | None:
         bids=bids,
         contracts=tuple(contracts),
     )
+
+
+def contracts_page_full(response: Any, inn: str) -> bool:
+    """Метод contracts не сообщает о следующей странице: судим по тому, что эта заполнена."""
+    block = response.get(inn) if isinstance(response, dict) else None
+    return isinstance(block, dict) and len(block) >= limits.DAMIA_CONTRACTS_PAGE
 
 
 def has_next_page(response: Any) -> bool:

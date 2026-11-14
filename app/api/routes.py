@@ -6,9 +6,10 @@ from pydantic import BaseModel, Field
 
 from app import __version__, config, limits
 from app.api.access import is_local_request
-from app.pipeline import analyze, steps
+from app.pipeline import analyze, backtest, export, steps
 from app.pipeline.jobs import Busy, Job, Jobs
-from app.schemas.card import AnalysisCard, DocumentsFile, ModelCheck, ProfileFile, TendersFile
+from app.schemas.card import (AnalysisCard, BacktestFile, DocumentsFile, ExportIndex, ModelCheck,
+                              ProfileFile, TendersFile)
 from app.sources.damia import DamiaClient, DamiaError, QuotaExceeded, QuotaLine
 from app.sources.documents import Downloader
 from app.sources.llm import LlmClient, LlmError, LlmNotConfigured, LlmRateLimited
@@ -86,6 +87,8 @@ def _run(action):
         raise HTTPException(429, str(e))
     except DamiaError as e:
         raise HTTPException(502, str(e))
+    except export.SecretFound as e:
+        raise HTTPException(500, str(e))
 
 
 class Health(BaseModel):
@@ -107,6 +110,12 @@ class BuildProfile(BaseModel):
     inn: Optional[str] = None
     network: bool = False  # разрешить запрос к API (тратит квоту), если ответа нет на диске
     max_pages: int = Field(1, ge=1, le=limits.PROFILE_MAX_PAGES)
+
+
+class RunBacktest(BaseModel):
+    network: bool = False  # разрешить запросы к API: один на каждого нового заказчика
+    customers: int = Field(limits.BACKTEST_CUSTOMERS, ge=0, le=limits.BACKTEST_CUSTOMERS)
+    max_pages: int = Field(limits.PROFILE_MAX_PAGES, ge=1, le=limits.PROFILE_MAX_PAGES)
 
 
 class SearchTenders(BaseModel):
@@ -222,3 +231,27 @@ def tenders_search(body: SearchTenders, client: DamiaClient = Depends(get_client
                    store: Store = Depends(get_store)) -> TendersFile:
     return _run(lambda: steps.search_tenders(client, store, body.query, body.from_date,
                                              network=body.network))
+
+
+@router.get("/backtest", response_model=BacktestFile)
+def backtest_result(store: Store = Depends(get_store)) -> BacktestFile:
+    saved = store.load("backtest", BacktestFile)
+    if saved is None:
+        raise HTTPException(404, "Проверка ещё не запускалась: POST /api/backtest/run.")
+    return saved
+
+
+@router.post("/backtest/run", response_model=BacktestFile, dependencies=[Depends(local_only)])
+def backtest_run(body: RunBacktest, client: DamiaClient = Depends(get_client),
+                 store: Store = Depends(get_store)) -> BacktestFile:
+    return _run(lambda: backtest.run(client, store, config.company_inn(), network=body.network,
+                                     max_pages=body.max_pages, customers=body.customers))
+
+
+@router.post("/export", response_model=ExportIndex, dependencies=[Depends(local_only)])
+def export_package(store: Store = Depends(get_store)) -> ExportIndex:
+    """Собирает пакет для веб-версии в папке data/export (папка создаётся заново)."""
+    secrets = [config.setting(n) for n in ("DAMIA_KEY", "LLM_API_KEY")]
+    return _run(lambda: export.build(store, config.data_dir() / "export", config.company_inn(),
+                                     [s for s in secrets if s]))
+

@@ -5,6 +5,7 @@
 """
 import time
 from dataclasses import replace
+from datetime import date
 from typing import Callable, Optional
 
 from app import limits
@@ -69,10 +70,10 @@ def _rule_attention(card: TenderCard, tender_id: str) -> list[Attention]:
 
 
 def _history(api: _Api, card: TenderCard, company_inn: str, company_contracts: list[Contract],
-             lookups: int, sources: dict[str, Source], notes: list[str]
+             lookups: int, sources: dict[str, Source], notes: list[str], before: str = ""
              ) -> customer_history.CustomerHistory:
     kwargs = dict(tender_codes=card.okpd_codes, tender_title=card.title, exclude_tender=card.regn,
-                  company_contracts=company_contracts)
+                  company_contracts=company_contracts, before=before)
     reply = api.get("contracts", inn=card.customer_inn, fz="44", role="1", format="2")
     if reply is None:
         notes.append("История заказчика не запрошена: ответа нет среди сохранённых, "
@@ -81,8 +82,9 @@ def _history(api: _Api, card: TenderCard, company_inn: str, company_contracts: l
     contracts, bad = damia_parse.parse_contracts(reply.data, card.customer_inn, "1")
     if bad:
         notes.append(f"Контрактов заказчика, которые не удалось разобрать: {bad}.")
-    if damia_parse.has_next_page(reply.data):
-        notes.append("У заказчика есть более ранние контракты: прочитана только первая страница.")
+    if damia_parse.contracts_page_full(reply.data, card.customer_inn):
+        notes.append(f"У заказчика, вероятно, есть более ранние контракты: прочитаны только "
+                     f"{limits.DAMIA_CONTRACTS_PAGE} самых свежих.")
     notes.append("История заказчика: только контракты по 44-ФЗ.")
     sources["history"] = Source(
         id="history", kind="contract",
@@ -186,6 +188,7 @@ def analyze_tender(
     lookups: int = limits.HISTORY_LOOKUPS,
     progress: Progress = lambda step, done, total: None,
     sleep: Callable[[float], None] = time.sleep,
+    today: Optional[str] = None,
 ) -> AnalysisCard:
     started = time.monotonic()
     saved = store.load("profile", ProfileFile)
@@ -211,18 +214,32 @@ def analyze_tender(
                                 url=TENDER_URL.format(regn), used_for=["tender", "attention"],
                                 comment=f"Получено {reply.fetched_at}.")
 
-    # Профиль без контракта самой закупки: оценка не должна знать исход.
+    # Оценка не должна знать исход. Из профиля убирается контракт самой закупки, а если приём
+    # заявок уже закончился, то и всё, что опубликовано после объявления закупки.
+    today = today or date.today().isoformat()
+    before = card.published[:10] if card.published and card.deadline and card.deadline[:10] < today else ""
     profile = saved.profile
     company_contracts: list[Contract] = []
-    own = client.cached("contracts", inn=company_inn, fz="44", role="0", format="2")
-    if own:
-        company_contracts, _ = damia_parse.parse_contracts(own.data, company_inn, "0")
-        without = [c for c in company_contracts if c.tender_regn != regn]
-        if len(without) != len(company_contracts):
-            profile = profile_domain.build_profile(company_inn, without)
+    try:
+        company_contracts, _, _ = steps.company_contracts(
+            client, company_inn, max_pages=limits.PROFILE_MAX_PAGES, saved_only_after_first=True)
+    except steps.NotCached:
+        notes.append("Контрактов компании нет среди сохранённых: профиль взят как есть, "
+                     "контракт самой закупки из него не исключён.")
+    if company_contracts:
+        won = any(c.tender_regn == regn for c in company_contracts)
+        kept = [c for c in company_contracts
+                if c.tender_regn != regn and not (before and c.published >= before)]
+        if won:
             notes.append("Компания уже выиграла эту закупку. Её контракт исключён из профиля и из "
                          "истории заказчика: оценка сделана так, как будто исход неизвестен.")
-            company_contracts = without
+        if before:
+            notes.append(f"Приём заявок закончился. В профиле компании и в истории заказчика оставлены "
+                         f"только контракты, опубликованные до объявления закупки ({before}): "
+                         f"из профиля убрано {len(company_contracts) - len(kept)} более поздних.")
+        if len(kept) != len(company_contracts) or len(kept) != profile.contracts:
+            profile = profile_domain.build_profile(company_inn, kept)
+        company_contracts = kept
     sources["profile"] = Source(
         id="profile", kind="profile",
         title=f"Профиль компании (ИНН {company_inn}) по её контрактам",
@@ -233,7 +250,7 @@ def analyze_tender(
     text_match = okpd.text_match(card.title, profile.terms())
 
     progress("История заказчика", 0, 1)
-    history = _history(api, card, company_inn, company_contracts, lookups, sources, notes)
+    history = _history(api, card, company_inn, company_contracts, lookups, sources, notes, before)
 
     progress("Документы", 0, 1)
     docs = steps.tender_documents(client, downloader, regn, download=download)

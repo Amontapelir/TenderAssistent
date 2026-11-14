@@ -32,7 +32,7 @@ class Store:
             return None
 
     def save(self, name: str, model: BaseModel) -> Path:
-        """name: "profile" или "tenders"."""
+        """name: "profile", "tenders" или "backtest"."""
         return self._write(self.out_dir / f"{name}.json", model)
 
     def load(self, name: str, model: Type[M]) -> Optional[M]:
