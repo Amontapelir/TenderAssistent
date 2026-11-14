@@ -4,6 +4,7 @@
 и при сбое сервера запрос повторяется ограниченное число раз. Ключ не попадает в ошибки.
 """
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +33,8 @@ class LlmReply:
     prompt_tokens: int
     completion_tokens: int
     attempts: int
+    remaining_tokens: Optional[int] = None  # сколько токенов осталось в текущей минуте
+    reset_seconds: Optional[float] = None  # через сколько секунд остаток восстановится
 
 
 def _post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, dict, str]:
@@ -44,11 +47,24 @@ def _post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, di
 
 
 def _wait_seconds(headers: dict) -> float:
-    value = next((v for k, v in headers.items() if k.lower() == "retry-after"), "")
+    value = _header(headers, "retry-after")
     try:
         return max(0.0, min(float(value), limits.LLM_RETRY_WAIT_MAX))
     except ValueError:
         return 5.0
+
+
+def _header(headers: dict, name: str) -> str:
+    return next((str(v) for k, v in headers.items() if k.lower() == name), "")
+
+
+def _duration(value: str) -> Optional[float]:
+    """Длительность из заголовка: "28.08s", "1m26.4s", "450ms"."""
+    parts = re.findall(r"([\d.]+)(ms|s|m|h)", value)
+    if not parts:
+        return None
+    scale = {"ms": 0.001, "s": 1, "m": 60, "h": 3600}
+    return sum(float(number) * scale[unit] for number, unit in parts)
 
 
 class LlmClient:
@@ -59,6 +75,7 @@ class LlmClient:
         model: str,
         post: Callable[[str, dict, bytes, float], tuple[int, dict, str]] = _post,
         sleep: Callable[[float], None] = time.sleep,
+        extra: Optional[dict] = None,
     ):
         if not (base_url and api_key and model):
             raise LlmNotConfigured(
@@ -71,6 +88,7 @@ class LlmClient:
         self._key = api_key
         self._post = post
         self._sleep = sleep
+        self._extra = dict(extra or {})  # дополнительные поля запроса, например reasoning_effort
 
     def _clean(self, text: str) -> str:
         return text.replace(self._key, "***")
@@ -82,6 +100,7 @@ class LlmClient:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0,
             "response_format": {"type": "json_object"},
+            **self._extra,
         }
         if max_tokens:
             payload["max_tokens"] = max_tokens
@@ -97,8 +116,9 @@ class LlmClient:
                 reason = getattr(e, "reason", e)
                 raise LlmError(f"Модель недоступна: {self._clean(str(reason))}") from None
             if status == 200:
-                return self._parse(text, attempt)
-            retriable = status == 429 or status >= 500
+                return self._parse(text, attempt, reply_headers)
+            # 400 json_validate_failed: модель не смогла собрать JSON, вторая попытка обычно удаётся
+            retriable = status == 429 or status >= 500 or (status == 400 and "json_validate_failed" in text)
             if retriable and attempt < attempts:
                 self._sleep(_wait_seconds(reply_headers))
                 continue
@@ -112,7 +132,7 @@ class LlmClient:
             raise LlmError(f"Модель ответила кодом {status}: {detail}")
         raise LlmError("Модель не ответила.")  # недостижимо: цикл всегда возвращает или падает
 
-    def _parse(self, text: str, attempt: int) -> LlmReply:
+    def _parse(self, text: str, attempt: int, headers: dict) -> LlmReply:
         try:
             outer = json.loads(text)
             content = outer["choices"][0]["message"]["content"]
@@ -125,6 +145,9 @@ class LlmClient:
         if not isinstance(data, dict):
             raise LlmError("Модель вернула JSON, но не объект.")
         usage = outer.get("usage") or {}
+        remaining = _header(headers, "x-ratelimit-remaining-tokens")
         return LlmReply(data, str(outer.get("model") or self.model),
                         int(usage.get("prompt_tokens") or 0),
-                        int(usage.get("completion_tokens") or 0), attempt)
+                        int(usage.get("completion_tokens") or 0), attempt,
+                        int(remaining) if remaining.isdigit() else None,
+                        _duration(_header(headers, "x-ratelimit-reset-tokens")))

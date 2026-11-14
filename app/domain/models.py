@@ -16,6 +16,8 @@ class Contract:
     tender_regn: str  # пусто, если контракт заключён без извещения
     tender_price: float  # начальная цена закупки; 0, если неизвестна
     status: str = ""
+    supplier_names: tuple[str, ...] = ()
+    placing_way: str = ""
 
 
 @dataclass(frozen=True)

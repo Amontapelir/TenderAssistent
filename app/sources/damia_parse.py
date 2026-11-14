@@ -38,9 +38,8 @@ def parse_contracts(response: Any, inn: str, role: str) -> tuple[list[Contract],
         if role == "0":
             customer, suppliers = _text(item.get("ЗаказчикИНН")), (inn,)
         else:
-            # Для роли заказчика имя поля с поставщиком реальным ответом не подтверждено.
-            supplier = _text(item.get("ПоставщикИНН"))
-            customer, suppliers = inn, ((supplier,) if supplier else ())
+            # В списке контрактов заказчика поставщик не указан: его даёт метод contract.
+            customer, suppliers = inn, ()
         contracts.append(Contract(
             regn=str(regn),
             published=_text(item.get("ДатаПубл")),
@@ -54,6 +53,38 @@ def parse_contracts(response: Any, inn: str, role: str) -> tuple[list[Contract],
             status=_text((item.get("Статус") or {}).get("Статус")),
         ))
     return contracts, bad
+
+
+def _suppliers(block: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    found = [s for kind in ("ЮЛ", "ИП", "ФЛ")
+             for s in (block or {}).get(kind) or [] if isinstance(s, dict)]
+    inns = tuple(_text(s.get("ИНН")) for s in found if _text(s.get("ИНН")))
+    names = tuple(_text(s.get("НаимСокр")) or _text(s.get("НаимПолн")) for s in found)
+    return inns, names
+
+
+def parse_contract(response: Any, regn: str) -> Contract | None:
+    """Ответ метода contract: один контракт с поставщиками. None, если контракта в ответе нет."""
+    item = response.get(regn) if isinstance(response, dict) else None
+    if not isinstance(item, dict) or not isinstance(item.get("Цена"), dict):
+        return None
+    product = item.get("Продукт") or {}
+    tender = item.get("Закупка") or {}
+    inns, names = _suppliers(item.get("Поставщики"))
+    return Contract(
+        regn=regn,
+        published=_text(item.get("ДатаПубл")),
+        customer_inn=_text((item.get("Заказчик") or {}).get("ИНН")),
+        supplier_inns=inns,
+        price=_num(item["Цена"].get("Сумма")),
+        okpd=okpd.normalize(_text(product.get("ОКПД"))),
+        title=_text(product.get("Название")),
+        tender_regn=_text(tender.get("НомерИзвещения")),
+        tender_price=0.0,  # метод contract начальную цену закупки не отдаёт
+        status=_text((item.get("Статус") or {}).get("Статус")),
+        supplier_names=names,
+        placing_way=_text(tender.get("СпособРазм")),
+    )
 
 
 def parse_tender(response: Any, regn: str) -> TenderCard | None:
@@ -90,15 +121,13 @@ def parse_tender(response: Any, regn: str) -> TenderCard | None:
     for contract_regn, c in (item.get("Контракты") or {}).items():
         if not isinstance(c, dict):
             continue
-        suppliers = [s for kind in ("ЮЛ", "ИП", "ФЛ")
-                     for s in (c.get("Поставщики") or {}).get(kind) or [] if isinstance(s, dict)]
+        inns, names = _suppliers(c.get("Поставщики"))
         contracts.append(TenderContract(
             regn=str(contract_regn),
             signed=_text(c.get("ДатаПодп")),
             price=_num((c.get("Цена") or {}).get("Сумма")),
-            supplier_inns=tuple(_text(s.get("ИНН")) for s in suppliers if _text(s.get("ИНН"))),
-            supplier_names=tuple(_text(s.get("НаимСокр")) or _text(s.get("НаимПолн"))
-                                 for s in suppliers),
+            supplier_inns=inns,
+            supplier_names=names,
         ))
 
     return TenderCard(

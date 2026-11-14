@@ -26,11 +26,40 @@ def normalize(text: str) -> str:
     return _SPACE.sub(" ", text).strip()
 
 
+_GAP = re.compile(r"\s*(?:\[\s*)?(?:\.{3,}|…)(?:\s*\])?\s*")
+
+
+def fragments(quote: str) -> list[str]:
+    """Нормализованные фрагменты цитаты. Пропуск в цитате обозначается многоточием."""
+    return [part for part in (normalize(p) for p in _GAP.split(quote or "")) if part]
+
+
+def check(normalized_document: str, quote: str) -> str:
+    """Пустая строка, если цитата подтверждена, иначе причина отказа.
+
+    Цитата без пропусков должна встретиться целиком. Цитата с пропусками: каждый фрагмент
+    дословно, по порядку, и все вместе в пределах одного отрезка документа.
+    """
+    parts = fragments(quote)
+    if not parts or any(len(part) < limits.QUOTE_MIN_CHARS for part in parts):
+        return f"цитата или её фрагмент короче {limits.QUOTE_MIN_CHARS} знаков"
+    start = normalized_document.find(parts[0])
+    while start >= 0:
+        position, ok = start + len(parts[0]), True
+        for part in parts[1:]:
+            found = normalized_document.find(part, position, start + limits.QUOTE_SPAN_MAX)
+            if found < 0:
+                ok = False
+                break
+            position = found + len(part)
+        if ok:
+            return ""
+        start = normalized_document.find(parts[0], start + 1)
+    return "цитаты нет в указанном документе"
+
+
 def contains(document: str, quote: str) -> bool:
-    q = normalize(quote)
-    if len(q) < limits.QUOTE_MIN_CHARS:
-        return False
-    return q in normalize(document)
+    return check(normalize(document), quote) == ""
 
 
 @dataclass(frozen=True)
@@ -50,14 +79,13 @@ def split_by_quote(
     kept: list[T] = []
     dropped: list[Dropped] = []
     for item in items:
-        quote = normalize(quote_of(item))
         doc_id = doc_of(item)
-        if len(quote) < limits.QUOTE_MIN_CHARS:
-            dropped.append(Dropped(item, f"цитата короче {limits.QUOTE_MIN_CHARS} знаков"))
-        elif doc_id not in normalized:
+        if doc_id not in normalized:
             dropped.append(Dropped(item, f"документ «{doc_id}» не найден среди прочитанных"))
-        elif quote not in normalized[doc_id]:
-            dropped.append(Dropped(item, "цитаты нет в указанном документе"))
+            continue
+        reason = check(normalized[doc_id], quote_of(item))
+        if reason:
+            dropped.append(Dropped(item, reason))
         else:
             kept.append(item)
     return kept, dropped

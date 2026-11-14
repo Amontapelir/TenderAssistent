@@ -61,6 +61,7 @@ class Requirement(BaseModel):
     quote: str  # дословно из документа
     source_id: str
     company_status: Literal["met", "not_met", "unknown"]
+    importance: Literal["high", "medium", "low"] = "medium"  # low: рутинное, есть у любой компании
     gap: str = ""  # чего не хватает
     action: str = ""  # что можно сделать
 
@@ -68,7 +69,7 @@ class Requirement(BaseModel):
 class Attention(BaseModel):
     text: str
     source_id: str
-    quote: str = ""
+    quote: str = ""  # пусто у пунктов, взятых из карточки закупки, а не из документа
 
 
 class DroppedFinding(BaseModel):
@@ -79,6 +80,23 @@ class DroppedFinding(BaseModel):
     reason: str
 
 
+class AnalysisStats(BaseModel):
+    """Сколько стоил анализ: время, запросы к API закупок, токены модели."""
+
+    seconds: float = 0.0
+    api_requests: dict[str, int] = Field(default_factory=dict)  # {метод: новых запросов}
+    documents_read: int = 0
+    parts_total: int = 0
+    parts_read: int = 0
+    model_requests: int = 0
+    model_answers_reused: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    waited_seconds: float = 0.0
+    findings_total: int = 0  # выводов модели до проверки цитат
+    findings_kept: int = 0
+
+
 class AnalysisCard(BaseModel):
     schema_version: int = SCHEMA_VERSION
     generated_at: str
@@ -86,6 +104,7 @@ class AnalysisCard(BaseModel):
     tender: TenderInfo
     area_match: AreaMatch
     area_comment: str = ""  # оценка по смыслу, если её дала модель
+    area_level_by_meaning: str = ""  # high, medium, low, none; пусто, если модель не оценивала
     customer_history: CustomerHistory
     winning_hypotheses: list[Hypothesis] = Field(default_factory=list)
     requirements: list[Requirement] = Field(default_factory=list)
@@ -96,6 +115,7 @@ class AnalysisCard(BaseModel):
     limitations: list[str] = Field(default_factory=list)
     dropped_findings: list[DroppedFinding] = Field(default_factory=list)
     model: str = ""  # какая модель читала документацию; пусто, если не читала
+    stats: AnalysisStats = Field(default_factory=AnalysisStats)
 
 
 class DocumentState(BaseModel):

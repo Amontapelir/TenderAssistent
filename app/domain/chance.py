@@ -22,6 +22,7 @@ class Factor:
 class ChanceInput:
     area_level: str  # high, medium, low, none, unknown
     text_match: Optional[float] = None  # 0..1, сходство названия с контрактами компании
+    semantic_level: Optional[str] = None  # оценка области по смыслу (модель): high, medium, low, none
     customer_contracts: int = 0
     company_wins_at_customer: Optional[int] = None
     no_reduction_share: Optional[float] = None
@@ -39,7 +40,7 @@ class Chance:
     level: str  # high, medium, low, unknown
     range_low: Optional[int]
     range_high: Optional[int]
-    confidence: str  # high, medium, low
+    confidence: str  # medium, low
     factors: list[Factor]
     limitations: list[str]
 
@@ -63,7 +64,11 @@ def estimate(data: ChanceInput) -> Chance:
     if area_known:
         points, text = _AREA[data.area_level]
         # Код может не совпасть, хотя по смыслу закупка профильная: смягчаем по словам названия.
-        if points < 0 and data.text_match is not None and data.text_match >= 0.5:
+        if points < 0 and data.semantic_level in ("high", "medium"):
+            factors.append(Factor("область", 5 if data.semantic_level == "high" else 0,
+                                  text + " Но по смыслу закупка близка к работам компании "
+                                  "(оценка модели)."))
+        elif points < 0 and data.text_match is not None and data.text_match >= 0.5:
             factors.append(Factor("область", 0, text + " Но название похоже на контракты "
                                   "компании: штраф за область не применён."))
         else:
@@ -108,8 +113,9 @@ def estimate(data: ChanceInput) -> Chance:
         factors.append(Factor("требования", -25 * min(data.blocking_gaps, 2),
                               f"Не выполнено обязательных требований: {data.blocking_gaps}."))
     if data.open_questions:
-        factors.append(Factor("требования", -3 * min(data.open_questions, 4),
-                              f"Требований, по которым соответствие неизвестно: {data.open_questions}."))
+        # Не штрафуем: по публичным данным большинство требований проверить нельзя.
+        factors.append(Factor("требования", 0, "Важных требований, которые нужно проверить "
+                                              f"внутри компании: {data.open_questions}."))
     if not data.documents_read:
         limitations.append("Документация не прочитана: требования к участнику не учтены.")
 
@@ -126,7 +132,8 @@ def estimate(data: ChanceInput) -> Chance:
         data.average_bids is not None or data.reduction_observations >= 5,
         data.documents_read,
     ])
-    confidence, half = ("high", 10) if evidence >= 4 else (("medium", 15) if evidence >= 2 else ("low", 20))
+    # Выше средней уверенность не ставится, пока правила не проверены на прошлых закупках.
+    confidence, half = ("medium", 15) if evidence >= 3 else ("low", 20)
     low, high = max(0, score - half), min(95, score + half)
     level = "high" if score >= 60 else ("medium" if score >= 35 else "low")
     if data.blocking_gaps and level == "high":

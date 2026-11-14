@@ -6,17 +6,20 @@ from pydantic import BaseModel, Field
 
 from app import __version__, config, limits
 from app.api.access import is_local_request
-from app.pipeline import steps
-from app.schemas.card import DocumentsFile, ModelCheck, ProfileFile, TendersFile
+from app.pipeline import analyze, steps
+from app.pipeline.jobs import Busy, Job, Jobs
+from app.schemas.card import AnalysisCard, DocumentsFile, ModelCheck, ProfileFile, TendersFile
 from app.sources.damia import DamiaClient, DamiaError, QuotaExceeded, QuotaLine
 from app.sources.documents import Downloader
 from app.sources.llm import LlmClient, LlmError, LlmNotConfigured, LlmRateLimited
 from app.storage.files import Store
+from app.storage.llm_cache import LlmCache
 
 router = APIRouter(prefix="/api")
 
 _INN = re.compile(r"^\d{10}(\d{2})?$")
 _REGN = re.compile(r"^\d{8,25}$")
+jobs = Jobs()
 _DATE = r"^\d{4}-\d{2}-\d{2}$"
 
 
@@ -43,6 +46,23 @@ def _check_regn(regn: str) -> None:
         raise HTTPException(422, "Номер закупки должен состоять только из цифр.")
 
 
+def get_llm() -> Optional[LlmClient]:
+    """Клиент модели или None, если модель не настроена."""
+    names = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
+    if not all(config.setting(n) for n in names):
+        return None
+    effort = config.setting("LLM_REASONING_EFFORT")
+    return LlmClient(*(config.setting(n) for n in names),
+                     extra={"reasoning_effort": effort} if effort else None)
+
+
+class Analyze(BaseModel):
+    network: bool = False  # разрешить запросы к API закупок (тратят квоту)
+    download: bool = False  # разрешить скачивание файлов закупки с zakupki.gov.ru
+    cost: Optional[float] = Field(None, ge=0)  # себестоимость для расчёта маржи (допущение)
+    history_lookups: int = Field(limits.HISTORY_LOOKUPS, ge=0, le=limits.HISTORY_LOOKUPS)
+
+
 class FetchDocuments(BaseModel):
     network: bool = False  # разрешить запрос карточки закупки к API, если её нет на диске
 
@@ -54,6 +74,8 @@ def _run(action):
         raise HTTPException(409, str(e))
     except steps.NotFound as e:
         raise HTTPException(404, str(e))
+    except Busy as e:
+        raise HTTPException(409, str(e))
     except LlmNotConfigured as e:
         raise HTTPException(409, str(e))
     except LlmRateLimited as e:
@@ -148,11 +170,43 @@ def documents_fetch(regn: str, body: FetchDocuments, client: DamiaClient = Depen
                                                download=True))
 
 
+@router.post("/tenders/{regn}/analyze", response_model=Job, status_code=202,
+             dependencies=[Depends(local_only)])
+def tender_analyze(regn: str, body: Analyze, client: DamiaClient = Depends(get_client),
+                   downloader: Downloader = Depends(get_downloader),
+                   store: Store = Depends(get_store)) -> Job:
+    """Запускает анализ закупки в фоне. Ход: GET /api/jobs/{id}, результат: GET /api/cards/{regn}."""
+    _check_regn(regn)
+    llm, cache = get_llm(), LlmCache(config.data_dir())
+    return _run(lambda: jobs.start(regn, lambda progress: analyze.analyze_tender(
+        client, downloader, store, llm, cache, regn, network=body.network, download=body.download,
+        cost=body.cost, lookups=body.history_lookups, progress=progress)))
+
+
+@router.get("/jobs/{job_id}", response_model=Job)
+def job_state(job_id: str) -> Job:
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Задача не найдена. Сведения о задачах не переживают перезапуск сервера.")
+    return job
+
+
+@router.get("/cards/{regn}", response_model=AnalysisCard)
+def card(regn: str, store: Store = Depends(get_store)) -> AnalysisCard:
+    _check_regn(regn)
+    saved = store.load_card(regn, AnalysisCard)
+    if saved is None:
+        raise HTTPException(404, "Карточки анализа для этой закупки ещё нет.")
+    return saved
+
+
 @router.post("/model/check", response_model=ModelCheck, dependencies=[Depends(local_only)])
 def model_check() -> ModelCheck:
     """Один короткий запрос к модели: проверка ключа и ответа в JSON."""
-    return _run(lambda: steps.check_model(LlmClient(
-        config.setting("LLM_BASE_URL"), config.setting("LLM_API_KEY"), config.setting("LLM_MODEL"))))
+    llm = get_llm()
+    if llm is None:
+        raise HTTPException(409, "Модель не настроена: задайте LLM_BASE_URL, LLM_API_KEY и LLM_MODEL в .env.")
+    return _run(lambda: steps.check_model(llm))
 
 
 @router.get("/tenders", response_model=TendersFile)

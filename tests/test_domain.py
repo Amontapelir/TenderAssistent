@@ -92,6 +92,29 @@ class Quotes(unittest.TestCase):
     def test_rejects_short(self):
         self.assertFalse(quotes.contains(self.DOC, "лицензию"))
 
+    LONG = ("Подать заявку вправе только соответствующий пункту 4 части 1 статьи 3 закона "
+            "зарегистрированный в единой информационной системе участник закупки. "
+            + "Прочие условия. " * 200 + "Обеспечение исполнения контракта составляет 30 процентов.")
+
+    def test_quote_with_gap(self):
+        self.assertTrue(quotes.contains(
+            self.LONG, "Подать заявку вправе только ... зарегистрированный в единой информационной системе"))
+        self.assertTrue(quotes.contains(
+            self.LONG, "Подать заявку вправе только […] участник закупки."))
+
+    def test_gap_does_not_hide_invention(self):
+        # второй фрагмент выдуман
+        self.assertFalse(quotes.contains(
+            self.LONG, "Подать заявку вправе только ... аккредитованный на площадке участник"))
+        # фрагменты настоящие, но в обратном порядке
+        self.assertFalse(quotes.contains(
+            self.LONG, "зарегистрированный в единой информационной системе ... Подать заявку вправе только"))
+        # фрагменты настоящие, но из разных концов документа
+        self.assertFalse(quotes.contains(
+            self.LONG, "Подать заявку вправе только ... Обеспечение исполнения контракта составляет"))
+        # за пропуском прячется слишком короткий фрагмент
+        self.assertFalse(quotes.contains(self.LONG, "Подать заявку вправе только ... закона"))
+
     def test_dropped_are_returned_with_reason(self):
         items = [("a", "должен иметь лицензию ФСБ", "doc:1"),
                  ("b", "опыт не менее пяти лет", "doc:1"),
@@ -130,23 +153,56 @@ class Profile(unittest.TestCase):
 
 
 class History(unittest.TestCase):
-    def test_winners(self):
-        other = "5000000009"
-        h = customer_history.summarize("5400000001", [
-            contract("1", 100, 100), contract("2", 80, 100, suppliers=(other,)),
-            contract("3", 70, 100, suppliers=(other,)),
-            contract("4", 1, 100, customer="7800000002"),
-        ], US)
-        self.assertEqual(h.contracts, 3)
-        self.assertEqual(h.company_wins, 1)
-        self.assertAlmostEqual(h.company_win_share, 1 / 3)
-        self.assertEqual(h.winners[0].inn, other)
-        self.assertFalse(h.winners[0].is_company)
+    CUSTOMER = "5400000001"
 
-    def test_unknown_suppliers(self):
-        h = customer_history.summarize("5400000001", [contract("1", 100, 100, suppliers=())], US)
-        self.assertIsNone(h.company_wins)
-        self.assertFalse(h.suppliers_known)
+    def rows(self):
+        other = dict(suppliers=(), customer=self.CUSTOMER)
+        return [
+            contract("2", 100, 100, code="63.99.10.190", title="Фиксация нарушений", date="2026-02-01", **other),
+            contract("1", 90, 100, code="63.99.10.190", title="Фиксация нарушений", date="2026-03-01", **other),
+            contract("3", 50, 100, code="19.20.21.325", title="Поставка дизельного топлива", **other),
+            contract("4", 880, 1000, tender="THIS", code="63.99.10.000", title="Фиксация нарушений", **other),
+            contract("5", 1, 100, customer="7800000002", code="63.99.10.190", suppliers=()),
+        ]
+
+    def summary(self, **kwargs):
+        return customer_history.summarize(self.CUSTOMER, self.rows(), US, tender_codes=["63.99.10.000"],
+                                          tender_title="Услуги фиксации нарушений", exclude_tender="THIS",
+                                          **kwargs)
+
+    def test_similar_contracts_and_own_tender_excluded(self):
+        h = self.summary()
+        self.assertEqual(h.contracts, 3)  # чужой заказчик и сама закупка не входят
+        self.assertEqual(h.relevant_contracts, 2)
+        self.assertEqual([e.contract_regn for e in h.examples], ["1", "2"])  # свежие вперёд
+        self.assertEqual(h.relevant_reductions.observations, 2)
+        self.assertEqual(h.reductions.observations, 3)
+        self.assertEqual((h.suppliers_known_for, h.winners), (0, []))
+        self.assertEqual(customer_history.lookup_candidates(h, 1), ["1"])
+
+    def test_winners_from_details(self):
+        rival = "5000000009"
+        known = contract("1", 90, 0, suppliers=(rival,), customer=self.CUSTOMER)
+        known = known.__class__(**{**known.__dict__, "supplier_names": ("ПАО Соперник",)})
+        h = self.summary(details={"1": known})
+        self.assertEqual(h.suppliers_known_for, 1)
+        self.assertEqual((h.winners[0].inn, h.winners[0].name, h.winners[0].is_company),
+                         (rival, "ПАО Соперник", False))
+        self.assertEqual(customer_history.lookup_candidates(h, 5), ["2"])
+        self.assertTrue(any("известен у 1 из 2" in t for t in h.limitations))
+
+    def test_company_wins_come_from_its_own_contracts(self):
+        mine = [contract("2", 100, 100, customer=self.CUSTOMER),
+                contract("4", 880, 1000, tender="THIS", customer=self.CUSTOMER),
+                contract("9", 5, 5, customer="7800000002")]
+        h = self.summary(company_contracts=mine)
+        self.assertEqual(h.company_wins, 1)  # контракт самой закупки не считается
+        self.assertTrue(h.winners[0].is_company)
+
+    def test_no_history(self):
+        h = customer_history.summarize("1", [], US)
+        self.assertEqual(h.contracts, 0)
+        self.assertTrue(h.limitations)
 
 
 class Chance(unittest.TestCase):
@@ -155,7 +211,7 @@ class Chance(unittest.TestCase):
             area_level="high", customer_contracts=10, company_wins_at_customer=4,
             average_bids=1.0, documents_read=True))
         self.assertEqual(result.level, "high")
-        self.assertEqual(result.confidence, "high")
+        self.assertEqual(result.confidence, "medium")  # выше не ставится без проверки на истории
         self.assertLess(result.range_low, result.range_high)
 
     def test_blocking_gap_lowers(self):
@@ -165,6 +221,13 @@ class Chance(unittest.TestCase):
         gap = chance.estimate(chance.ChanceInput(**base, blocking_gaps=1))
         self.assertLess(gap.range_high, ok.range_high)
         self.assertNotEqual(gap.level, "high")
+
+    def test_unknown_requirements_are_not_penalized(self):
+        base = dict(area_level="high", customer_contracts=10, company_wins_at_customer=4)
+        plain = chance.estimate(chance.ChanceInput(**base))
+        asked = chance.estimate(chance.ChanceInput(**base, open_questions=30))
+        self.assertEqual((asked.range_low, asked.range_high), (plain.range_low, plain.range_high))
+        self.assertTrue(any("проверить внутри компании: 30" in f.explanation for f in asked.factors))
 
     def test_no_data_is_unknown(self):
         result = chance.estimate(chance.ChanceInput(area_level="unknown"))
