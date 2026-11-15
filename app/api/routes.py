@@ -192,6 +192,17 @@ def tender_analyze(regn: str, body: Analyze, client: DamiaClient = Depends(get_c
         cost=body.cost, lookups=body.history_lookups, progress=progress)))
 
 
+@router.get("/jobs", response_model=list[Job])
+def jobs_recent() -> list[Job]:
+    return jobs.recent()
+
+
+@router.get("/index", response_model=ExportIndex)
+def live_index(store: Store = Depends(get_store)) -> ExportIndex:
+    """Что сейчас лежит в результатах: профиль, список закупок, проверка, карточки."""
+    return export.describe(store, config.company_inn())
+
+
 @router.get("/jobs/{job_id}", response_model=Job)
 def job_state(job_id: str) -> Job:
     job = jobs.get(job_id)

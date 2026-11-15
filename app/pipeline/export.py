@@ -18,6 +18,37 @@ _PARTS = (("profile", ProfileFile, "профиль компании"),
           ("backtest", BacktestFile, "проверка на прошлых закупках"))
 
 
+def card_row(card: AnalysisCard, file: str) -> ExportCard:
+    return ExportCard(
+        regn=card.tender.regn, title=card.tender.title, customer=card.tender.customer_name,
+        initial_price=card.tender.initial_price, chance_level=card.chance.level,
+        range_low=card.chance.range_low, range_high=card.chance.range_high,
+        requirements=len(card.requirements), file=file)
+
+
+def describe(store: Store, company_inn: str) -> ExportIndex:
+    """Оглавление того, что сейчас лежит в data/out. Ничего не пишет: это тот же индекс,
+    что попал бы в пакет, для локальной страницы, которая читает данные прямо с сервера."""
+    files: list[str] = []
+    missing: list[str] = []
+    cards: list[ExportCard] = []
+    for name, schema, label in _PARTS:
+        if store.load(name, schema) is None:
+            missing.append(f"{name}.json ({label}): ещё не построен.")
+        else:
+            files.append(f"{name}.json")
+    for path in sorted((store.out_dir / "cards").glob("*.json")):
+        card = store.load_card(path.stem, AnalysisCard)
+        if card is None:
+            continue
+        files.append(f"cards/{path.name}")
+        cards.append(card_row(card, f"cards/{path.name}"))
+    if not cards:
+        missing.append("cards/: нет ни одной карточки анализа.")
+    return ExportIndex(generated_at=time.strftime("%Y-%m-%dT%H:%M:%S"), company_inn=company_inn,
+                       files=files, cards=cards, missing=missing)
+
+
 class SecretFound(RuntimeError):
     """В файле результата нашлось значение ключа. Пакет не собран."""
 
@@ -55,11 +86,7 @@ def build(store: Store, target: Path, company_inn: str, secrets: list[str]) -> E
                 continue
             _dump(work / "cards" / path.name, card, secrets)
             files.append(f"cards/{path.name}")
-            cards.append(ExportCard(
-                regn=card.tender.regn, title=card.tender.title, customer=card.tender.customer_name,
-                initial_price=card.tender.initial_price, chance_level=card.chance.level,
-                range_low=card.chance.range_low, range_high=card.chance.range_high,
-                requirements=len(card.requirements), file=f"cards/{path.name}"))
+            cards.append(card_row(card, f"cards/{path.name}"))
         if not cards:
             missing.append("cards/: нет ни одной карточки анализа.")
         index = ExportIndex(generated_at=time.strftime("%Y-%m-%dT%H:%M:%S"), company_inn=company_inn,

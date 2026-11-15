@@ -432,3 +432,30 @@ details.dropped ul { margin-top: 10px; }
 }
 
 @media (max-width: 1100px) { .bar-note { display: none; } }
+
+/* --- Локальный режим: управление --- */
+.status-row { margin-bottom: 4px; }
+#local-body > * + * { margin-top: 14px; }
+.action > * + * { margin-top: 10px; }
+.action p:not(.label) { color: var(--ink-2); font-size: 14px; }
+.action-host > * + * { margin-top: 10px; }
+.form-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.form-row .search { flex: 1 1 220px; }
+.field { display: grid; gap: 4px; flex: 1 1 200px; }
+.field .search { width: 100%; }
+.btn-ink { background: var(--ink); color: #fff; }
+.btn-ink:hover { background: #2b2e33; }
+.confirm { padding: 14px 16px; border: 1px solid #ecd76a; border-radius: 10px; background: var(--accent-soft); }
+.confirm-text { font-size: 14px; line-height: 1.5; }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.job-box > * + * { margin-top: 10px; }
+.job { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow); }
+.job > * + * { margin-top: 8px; }
+.job-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.job-bar { height: 10px; border-radius: 999px; background: var(--line-2); overflow: hidden; }
+.job-bar i { display: block; height: 100%; width: var(--w, 0%); border-radius: 999px; background: var(--accent); border-right: 2px solid var(--ink); transition: width .6s var(--ease); }
+.job-done { border-color: #a9d9bb; }
+.job-failed { border-color: #e6b3ae; }
+.search-form > * + * { margin-top: 10px; }
+td .btn-sm { min-height: 32px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+.table-wrap td.r .btn { vertical-align: middle; }

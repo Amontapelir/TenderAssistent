@@ -35,6 +35,11 @@ class Jobs:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def recent(self, limit: int = 10) -> list[Job]:
+        """Последние задачи, новые вперёд. Страница после перезагрузки находит по ним идущую."""
+        with self._lock:
+            return list(self._jobs.values())[::-1][:max(0, limit)]
+
     def _update(self, job_id: str, **changes) -> None:
         with self._lock:
             self._jobs[job_id] = replace(self._jobs[job_id], **changes)

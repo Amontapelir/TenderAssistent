@@ -6,6 +6,14 @@
 const DATA = "data/";
 const PAGE = 20; // сколько строк списка показывается за один раз
 
+// Данные берутся либо из готовых файлов (GitHub Pages), либо прямо с локального сервера.
+// Режим выбирает local.js: detectLocal() сообщает, что страница открыта с этого компьютера.
+let LIVE = false;
+let booted = false; // после первой отрисовки числа не пересчитываются заново
+let currentOpen = null; // открыть карточку по номеру; ставит renderCards
+const LIVE_URL = { "index.json": "api/index", "profile.json": "api/profile",
+  "tenders.json": "api/tenders", "backtest.json": "api/backtest" };
+
 const LEVEL = { high: "высокий", medium: "средний", low: "низкий", unknown: "не определён" };
 const AREA = { high: "совпадает", medium: "близка", low: "смежная", none: "не совпадает", unknown: "не определена" };
 const IMPORTANCE = { high: "важное", medium: "существенное", low: "рутинное" };
@@ -53,6 +61,8 @@ function sized(node, name, share) {
   return node;
 }
 
+/** Вставляет детей в узел, пропуская пустые значения: replaceChildren напечатал бы «null». */
+const fill = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
 const tag = (text, kind) => el("span", `tag${kind ? " tag-" + kind : ""}`, text);
 const stat = (value, label, sub) => el("div", "stat", el("b", "", value), el("span", "", label), sub ? el("small", "", sub) : null);
 const fact = (label, value) => el("div", "fact", el("dt", "", label), el("dd", "", value));
@@ -119,7 +129,7 @@ const CALM = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** Число дорастает до значения за 0,9 с. При просьбе уменьшить движение стоит сразу. */
 function countUp(node, target, format) {
-  if (CALM || typeof target !== "number") return;
+  if (CALM || booted || typeof target !== "number") return;
   const whole = Number.isInteger(target);
   const started = performance.now();
   const tick = (now) => {
@@ -164,7 +174,7 @@ function chrome() {
     const max = document.documentElement.scrollHeight - innerHeight;
     bar.style.setProperty("--p", max > 0 ? (scrollY / max).toFixed(4) : "0");
     let current = -1;
-    sections.forEach((s, i) => { if (s && s.getBoundingClientRect().top < innerHeight * 0.35) current = i; });
+    sections.forEach((s, i) => { if (s && s.getClientRects().length && s.getBoundingClientRect().top < innerHeight * 0.35) current = i; });
     links.forEach((a, i) => (i === current ? a.setAttribute("aria-current", "true") : a.removeAttribute("aria-current")));
   };
   addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
@@ -189,8 +199,14 @@ const day = (value) => {
 const number = (value) => (typeof value === "number" ? value.toLocaleString("ru-RU") : "нет данных");
 const range = (low, high) => (low === null || low === undefined ? "" : `${low}–${high} из 100`);
 
+function dataUrl(name) {
+  if (!LIVE) return DATA + name;
+  const card = /^cards\/(\d+)\.json$/.exec(name);
+  return card ? `api/cards/${card[1]}` : LIVE_URL[name];
+}
+
 async function load(name) {
-  const response = await fetch(DATA + name, { cache: "no-cache" });
+  const response = await fetch(dataUrl(name), { cache: "no-cache" });
   if (!response.ok) throw new Error(`${name}: ответ ${response.status}`);
   return response.json();
 }
@@ -215,9 +231,11 @@ function renderIntro(index, profile, backtest) {
   }
   items.push(kpi("Карточек закупок", number(index.cards.length), "с требованиями и цитатами из документации", index.cards.length, number));
   document.getElementById("kpis").replaceChildren(...items);
-  document.getElementById("bar-note").textContent = `демонстрация · данные от ${day(index.generated_at)}`;
+  document.getElementById("bar-note").textContent = LIVE ? "локальный режим" :
+    `демонстрация · данные от ${day(index.generated_at)}`;
   const note = document.getElementById("demo-note");
-  note.textContent = `Это демонстрация на готовых файлах: данные собраны ${day(index.generated_at)} и не обновляются. ` +
+  note.textContent = LIVE ? "Локальный режим: данные читаются с вашего компьютера, новые результаты появляются сразу после действий в разделе «Управление»." :
+    `Это демонстрация на готовых файлах: данные собраны ${day(index.generated_at)} и не обновляются. ` +
     "Поиск и новый анализ здесь недоступны, для них программу нужно запустить у себя.";
   note.hidden = false;
 }
@@ -456,7 +474,7 @@ function fillPick(node, entry, card) {
     sized(mark, "--span", (entry.range_high - entry.range_low) / 100);
     mini.append(mark);
   }
-  node.replaceChildren(
+  fill(node,
     el("span", "pick-row",
       el("span", "pick-level", el("span", "pick-k", "шанс"),
         el("strong", `level-${entry.chance_level}`, LEVEL[entry.chance_level] || entry.chance_level)),
@@ -472,7 +490,10 @@ function renderCards(index) {
   const picker = document.getElementById("picker");
   const body = document.getElementById("card");
   if (!index.cards.length) {
-    body.replaceChildren(el("p", "empty", "Готовых карточек в пакете нет."));
+    picker.replaceChildren();
+    body.replaceChildren(el("p", "empty", LIVE ? "Карточек пока нет. Запустите анализ закупки в разделе «Управление» или из списка закупок ниже."
+      : "Готовых карточек в пакете нет."));
+    currentOpen = null;
     return;
   }
   const cards = new Map();
@@ -503,7 +524,7 @@ function renderCards(index) {
     if (scroll) document.getElementById("cards").scrollIntoView();
   }
   const fromHash = () => (/^#card=(\d+)$/.exec(location.hash) || [])[1];
-  window.addEventListener("hashchange", () => { if (fromHash()) open(fromHash(), true); });
+  currentOpen = open;
   open(fromHash(), Boolean(fromHash()));
 }
 
@@ -548,6 +569,12 @@ function renderCheck(backtest) {
 
 // --- список закупок ---
 
+function renderTendersEmpty() {
+  document.getElementById("tenders-sub").textContent = "Список появится после поиска.";
+  document.getElementById("tenders-body").replaceChildren(localSearchForm(null),
+    el("div", "block-gap"), el("p", "panel empty", "Поиск ещё не выполнялся."));
+}
+
 function renderTenders(tenders, index) {
   const analyzed = new Set(index.cards.map((c) => c.regn));
   document.getElementById("tenders-sub").textContent =
@@ -585,7 +612,8 @@ function renderTenders(tenders, index) {
           el("td", "r", day(c.deadline)),
           el("td", "", tag(c.is_open ? "идёт приём" : "закончен", c.is_open ? "good" : ""), " ", tag(`${c.law}-ФЗ`),
             analyzed.has(c.regn) ? [" ", tag("есть карточка", "accent")] : null),
-          el("td", "", el("div", "meter", sized(el("i", ""), "--w", c.text_match || 0), el("span", "num", percent(c.text_match))))));
+          el("td", "", el("div", "meter", sized(el("i", ""), "--w", c.text_match || 0), el("span", "num", percent(c.text_match)))),
+          LIVE ? el("td", "r", localRowAction(c.regn, analyzed.has(c.regn))) : null));
       }
       shown = Math.min(rows.length, shown + PAGE);
       more.replaceChildren();
@@ -597,11 +625,12 @@ function renderTenders(tenders, index) {
     step();
     holder.replaceChildren(el("div", "table-wrap", el("table", "",
       el("thead", "", el("tr", "", el("th", "", "Закупка"), el("th", "r", "Начальная цена"), el("th", "r", "Заявки до"),
-        el("th", "", "Состояние"), el("th", "", "Сходство с профилем"))), tbody)), more);
+        el("th", "", "Состояние"), el("th", "", "Сходство с профилем"), LIVE ? el("th", "r", "Действие") : null)), tbody)), more);
   }
   input.addEventListener("input", draw);
   draw();
-  document.getElementById("tenders-body").replaceChildren(
+  fill(document.getElementById("tenders-body"),
+    LIVE ? localSearchForm(tenders) : null, LIVE ? el("div", "block-gap") : null,
     el("div", "toolbar", input, toggle, count), holder,
     tenders.limitations.length ? el("div", "block-gap") : null,
     tenders.limitations.length ? limits("Ограничения списка", tenders.limitations) : null);
@@ -637,23 +666,34 @@ function renderProfile(profile) {
 
 async function main() {
   try {
+    if (!booted && typeof detectLocal === "function") LIVE = await detectLocal();
     const index = await load("index.json");
     const need = (name) => (index.files.includes(name) ? load(name) : null);
     const [profile, tenders, backtest] = await Promise.all([need("profile.json"), need("tenders.json"), need("backtest.json")]);
     const missing = (id, text) => document.getElementById(id).replaceChildren(el("p", "panel empty", text));
+    const none = (what) => (LIVE ? `${what} ещё нет: выполните действие в разделе «Управление».` : `${what} в пакете нет.`);
     renderIntro(index, profile, backtest);
     renderCards(index);
-    if (backtest) renderCheck(backtest); else missing("check-body", "Проверки на прошлых закупках в пакете нет.");
-    if (tenders) renderTenders(tenders, index); else missing("tenders-body", "Списка закупок в пакете нет.");
-    if (profile) renderProfile(profile); else missing("profile-body", "Профиля в пакете нет.");
+    if (backtest) renderCheck(backtest); else missing("check-body", none("Проверки на прошлых закупках"));
+    if (tenders) renderTenders(tenders, index);
+    else if (LIVE) renderTendersEmpty();
+    else missing("tenders-body", none("Списка закупок"));
+    if (profile) renderProfile(profile); else missing("profile-body", none("Профиля"));
+    if (LIVE) renderLocal(index, { profile, tenders, backtest });
     reveal();
+    if (LIVE && !booted) resumeJob();
+    booted = true;
   } catch (error) {
     const box = document.getElementById("load-error");
     box.textContent = `Данные не загрузились: ${error.message}. ` +
-      "Страницу нужно открывать с сервера (GitHub Pages или локальный сервер), а не как файл с диска.";
+      (LIVE ? "Проверьте, что сервер запущен." : "Страницу нужно открывать с сервера (GitHub Pages или локальный сервер), а не как файл с диска.");
     box.hidden = false;
   }
 }
 
-chrome();
-main();
+// Скрипты подключены с defer: к этому событию загружены и app.js, и local.js.
+addEventListener("hashchange", () => {
+  const regn = (/^#card=(\d+)$/.exec(location.hash) || [])[1];
+  if (regn && currentOpen) currentOpen(regn, true);
+});
+document.addEventListener("DOMContentLoaded", () => { chrome(); main(); });

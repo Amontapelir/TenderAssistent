@@ -7,6 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>TenderAssistant: стоит ли участвовать в закупке</title>
   <meta name="description" content="Карточка решения по закупке: область, история заказчика, требования с цитатами, цена, оценка шансов. Демонстрация на открытых данных.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap">
@@ -18,7 +19,7 @@
   <div class="wrap bar-in">
     <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>TenderAssistant</a>
     <nav class="nav" aria-label="Разделы">
-      <a href="#how">Как работает</a><a href="#cards">Карточки</a><a href="#check">Проверка</a><a href="#tenders">Закупки</a><a href="#profile">Профиль</a>
+      <a href="#local" id="nav-local" hidden>Управление</a><a href="#how">Как работает</a><a href="#cards">Карточки</a><a href="#check">Проверка</a><a href="#tenders">Закупки</a><a href="#profile">Профиль</a>
     </nav>
     <span class="bar-note" id="bar-note">демонстрация</span>
   </div>
@@ -41,6 +42,15 @@
   <div class="wrap">
     <p class="alert" id="load-error" role="alert" hidden></p>
     <p class="notice" id="demo-note" hidden></p>
+
+    <section id="local" class="block" aria-labelledby="local-h" hidden>
+      <header class="block-head">
+        <p class="idx">00</p>
+        <h2 id="local-h">Управление на этом компьютере</h2>
+        <p>Страница открыта с локального сервера, поэтому здесь есть действия. Каждое, что тратит запросы к DaMIA, скачивает файлы или обращается к модели, сначала называет цену и ждёт подтверждения.</p>
+      </header>
+      <div id="local-body"></div>
+    </section>
 
     <section id="how" class="block" aria-labelledby="how-h">
       <header class="block-head">
@@ -106,5 +116,6 @@
 </footer>
 <noscript><p class="alert">Странице нужен JavaScript: она читает готовые файлы с данными и строит из них разделы.</p></noscript>
 <script src="app.js" defer></script>
+<script src="local.js" defer></script>
 </body>
 </html>
