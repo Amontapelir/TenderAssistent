@@ -7,9 +7,9 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.domain.backtest import Report, Scored
+from app.domain.backtest import Comparison, ProfileStamp, Report, Scored
 from app.domain.candidates import Candidate
-from app.domain.chance import Chance
+from app.domain.chance import Chance, RuleSet
 from app.domain.customer_history import CustomerHistory
 from app.domain.okpd import AreaMatch
 from app.domain.prices import PriceEstimate
@@ -210,3 +210,14 @@ class ExportIndex(BaseModel):
     files: list[str]  # все файлы пакета, пути относительно оглавления
     cards: list[ExportCard]
     missing: list[str] = Field(default_factory=list)  # чего в пакете нет и почему
+
+
+class CompareFile(BaseModel):
+    """Один и тот же набор прошлых закупок, оценённый разными наборами правил."""
+
+    schema_version: int = SCHEMA_VERSION
+    generated_at: str
+    profile: ProfileStamp
+    rows: list[Comparison]
+    rules: dict[str, RuleSet]  # что означает каждое имя
+    limitations: list[str] = Field(default_factory=list)

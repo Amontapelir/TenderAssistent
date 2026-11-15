@@ -55,7 +55,8 @@ class Evaluate(unittest.TestCase):
         self.assertEqual(by["5"].area_level, "high")
         # у заказчика A до контракта 4 была одна победа, до контракта 5 две
         self.assertEqual((by["4"].wins_before, by["5"].wins_before), (1, 2))
-        self.assertEqual((report.won.total, report.other.total, report.separation), (2, 0, None))
+        self.assertEqual((report.won.total, report.other.total, report.separation.value), (2, 0, None))
+        self.assertEqual((report.separation.positives, report.separation.negatives), (0, 0))
         self.assertEqual(report.won_rated_low_share, 0.5)
         self.assertEqual((report.period_from, report.period_to), ("2026-02-01", "2026-03-01"))
 
@@ -84,7 +85,8 @@ class Evaluate(unittest.TestCase):
         self.assertLess(other["70"].score, other["71"].score)
         # выигранная закупка 5 оценена как чужая 71 и выше, чем 70
         self.assertEqual((report.won_at_customers.total, report.other.total), (1, 2))
-        self.assertEqual(report.separation, 0.75)
+        self.assertEqual(report.separation.value, 0.75)
+        self.assertEqual((report.separation.positives, report.separation.negatives), (1, 2))
         lines = {(f.factor, f.value): (f.won, f.other) for f in report.factors}
         self.assertEqual(lines[("область по кодам", "high")], (1, 1))
         self.assertEqual(lines[("область по кодам", "none")], (0, 1))
@@ -189,7 +191,7 @@ class BacktestStep(unittest.TestCase):
         self.assertEqual((result.report.won.total, result.report.other.total), (5, 4))
         self.assertTrue(any("2 из 3" in t for t in result.limitations))
         self.assertTrue(any(s.id == "history:A" for s in result.sources))
-        self.assertGreater(result.report.separation, 0.5)
+        self.assertGreater(result.report.separation.value, 0.5)
 
     def test_limit_of_customers(self):
         result = backtest_step.run(self.client, self.store, US, network=True,

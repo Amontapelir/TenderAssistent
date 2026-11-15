@@ -24,6 +24,8 @@ const CATEGORY = {
   security: "обеспечение", deadline: "сроки", documents: "документы", restriction: "ограничения",
   other: "прочее",
 };
+const VERDICT = { works: ["работает", "good"], inverted: ["наоборот", "bad"],
+  indistinguishable: ["не различает", "warn"], too_few: ["мало данных", ""] };
 const SOURCE_KIND = { tender: "закупка", profile: "профиль", contract: "контракты", document: "документ" };
 
 // --- построение разметки ---
@@ -227,7 +229,9 @@ function renderIntro(index, profile, backtest) {
   if (backtest) {
     const r = backtest.report;
     items.push(kpi("Закупок в проверке", number(r.won.total + r.other.total), `${number(r.won.total)} выигранных и ${number(r.other.total)} чужих`, r.won.total + r.other.total, number));
-    items.push(kpi("Выигранная оценена выше чужой", percent(r.separation), "в парах закупок; 50% значило бы «не различает»", r.separation, percent));
+    const w = r.separation_comparable;
+    items.push(kpi("Выигранная оценена выше чужой, среди похожих закупок", percent(w.value),
+      `в парах, интервал ${percent(w.low)}–${percent(w.high)}; 50% значило бы «не различает»`, w.value, percent));
   }
   items.push(kpi("Карточек закупок", number(index.cards.length), "с требованиями и цитатами из документации", index.cards.length, number));
   document.getElementById("kpis").replaceChildren(...items);
@@ -557,13 +561,38 @@ function renderCheck(backtest) {
       el("td", "", AREA[f.value] || LEVEL[f.value] || f.value), el("td", "r", number(f.won)), el("td", "r", number(f.other)),
       el("td", "", el("div", "meter", sized(el("i", ""), "--w", f.won_share || 0), el("span", "num", percent(f.won_share, 1)))))))));
 
-  document.getElementById("check-body").replaceChildren(
+  const sep = (v) => (v.value === null ? "нет данных" : `${percent(v.value)} (${percent(v.low)}–${percent(v.high)})`);
+  const verdictTag = (key) => { const [text, kind] = VERDICT[key] || [key, ""]; return tag(text, kind); };
+  const checks = el("div", "table-wrap", el("table", "",
+    el("caption", "", "Различает ли каждый фактор выигранные и чужие закупки"),
+    el("thead", "", el("tr", "", el("th", "", "Фактор"), el("th", "r", "Все закупки"), el("th", "", "Вердикт"),
+      el("th", "r", "Среди похожих"), el("th", "", "Вердикт"))),
+    el("tbody", "", r.factor_checks.map((c) => el("tr", "", el("th", "", c.factor),
+      el("td", "r", sep(c.overall)), el("td", "", verdictTag(c.verdict_overall)),
+      el("td", "r", sep(c.comparable)), el("td", "", verdictTag(c.verdict_comparable)))))));
+  const p = r.profile;
+  const comparableCount = r.separation_comparable;
+
+  fill(document.getElementById("check-body"),
+    el("div", "verdict-note",
+      el("p", "label", "Главный вывод"),
+      el("p", "", `Среди закупок, похожих на дело компании, оценка различает выигранные и чужие закупки в ${percent(comparableCount.value)} пар ` +
+        `(интервал ${percent(comparableCount.low)}–${percent(comparableCount.high)}, ${number(comparableCount.positives)} побед и ${number(comparableCount.negatives)} чужих). ` +
+        "50% значило бы «не различает». Сегодняшние правила на этих данных проверку не проходят, и это честный результат, а не ошибка отображения."),
+      el("p", "small", "Число по всем закупкам выше, потому что чужие закупки заказчиков в основном вообще не из области компании: оно отвечает на вопрос «похоже ли это на дело компании», а не «выиграет ли она».")),
+    el("div", "block-gap"),
     el("div", "stats",
-      stat(percent(r.separation), "пар, где выигранная закупка оценена выше чужой", "50% значило бы, что правила не различают"),
+      stat(sep(r.separation_comparable), "среди похожих закупок", `${number(comparableCount.positives)} побед и ${number(comparableCount.negatives)} чужих`),
+      stat(sep(r.separation), "по всем закупкам", `${number(r.separation.positives)} побед и ${number(r.separation.negatives)} чужих`),
       stat(percent(r.won_rated_low_share), "побед с оценкой «низкий»", `${number(r.won.low)} из ${number(r.won.total)}: их правила посоветовали бы пропустить`),
       stat(number(r.won.total + r.other.total), "закупок оценено", `${day(r.period_from)} – ${day(r.period_to)}, заказчиков ${r.customers.length}`),
       stat(number(r.skipped_early + r.skipped_no_tender), "не оценено", `${number(r.skipped_early)}: мало истории до закупки; ${number(r.skipped_no_tender)}: контракт без извещения`)),
+    el("div", "block-gap"), checks,
+    el("p", "small check-foot", "«Наоборот» значит, что фактор в этой выборке указывает в сторону, обратную правилу. Это в первую очередь следствие состава выборки " +
+      "(заказчики выбраны по числу побед компании, победы идут сериями у немногих заказчиков), а не доказательство, что фактор неверен: проверить и откалибровать его по таким данным нельзя."),
     el("div", "block-gap"), dist, el("div", "block-gap"), factors, el("div", "block-gap"),
+    el("p", "small check-foot", `Профиль, по которому считалось: ${number(p.contracts)} контрактов, ${day(p.period_from)} – ${day(p.period_to)}, отпечаток ${p.fingerprint}. ` +
+      `Правила: «${r.rules.name}». Когда в профиль добавят закрытые сведения о компании, проверку нужно запустить заново, а числа сравнивать с оговоркой о другом профиле.`),
     limits("Как читать эти числа", backtest.limitations));
 }
 

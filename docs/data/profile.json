@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-14T23:34:55",
+  "generated_at": "2026-11-15T14:42:30",
   "profile": {
     "inn": "7713076301",
     "contracts": 292,
@@ -212,11 +212,11 @@
         "contracts": 61
       },
       {
-        "stem": "интер",
+        "stem": "досту",
         "contracts": 52
       },
       {
-        "stem": "досту",
+        "stem": "интер",
         "contracts": 52
       },
       {
@@ -292,11 +292,11 @@
         "contracts": 11
       },
       {
-        "stem": "польз",
+        "stem": "общег",
         "contracts": 10
       },
       {
-        "stem": "общег",
+        "stem": "польз",
         "contracts": 10
       },
       {

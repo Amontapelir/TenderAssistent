@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -8,8 +8,8 @@ from app import __version__, config, limits
 from app.api.access import is_local_request
 from app.pipeline import analyze, backtest, export, steps
 from app.pipeline.jobs import Busy, Job, Jobs
-from app.schemas.card import (AnalysisCard, BacktestFile, DocumentsFile, ExportIndex, ModelCheck,
-                              ProfileFile, TendersFile)
+from app.schemas.card import (AnalysisCard, BacktestFile, CompareFile, DocumentsFile, ExportIndex,
+                              ModelCheck, ProfileFile, TendersFile)
 from app.sources.damia import DamiaClient, DamiaError, QuotaExceeded, QuotaLine
 from app.sources.documents import Downloader
 from app.sources.llm import LlmClient, LlmError, LlmNotConfigured, LlmRateLimited
@@ -116,6 +116,11 @@ class RunBacktest(BaseModel):
     network: bool = False  # разрешить запросы к API: один на каждого нового заказчика
     customers: int = Field(limits.BACKTEST_CUSTOMERS, ge=0, le=limits.BACKTEST_CUSTOMERS)
     max_pages: int = Field(limits.PROFILE_MAX_PAGES, ge=1, le=limits.PROFILE_MAX_PAGES)
+
+
+class CompareRules(BaseModel):
+    # имя набора -> изменения относительно текущих правил; параметры: см. chance.RuleSet
+    variants: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=limits.COMPARE_MAX_VARIANTS)
 
 
 class SearchTenders(BaseModel):
@@ -257,6 +262,15 @@ def backtest_run(body: RunBacktest, client: DamiaClient = Depends(get_client),
                  store: Store = Depends(get_store)) -> BacktestFile:
     return _run(lambda: backtest.run(client, store, config.company_inn(), network=body.network,
                                      max_pages=body.max_pages, customers=body.customers))
+
+
+@router.post("/backtest/compare", response_model=CompareFile, dependencies=[Depends(local_only)])
+def backtest_compare(body: CompareRules, client: DamiaClient = Depends(get_client)) -> CompareFile:
+    """Сравнивает наборы правил на сохранённых данных. К API закупок не обращается."""
+    try:
+        return _run(lambda: backtest.compare(client, config.company_inn(), body.variants))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @router.post("/export", response_model=ExportIndex, dependencies=[Depends(local_only)])
