@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>TenderAssistant: стоит ли участвовать в закупке</title>
+  <meta name="description" content="Карточка решения по закупке: область, история заказчика, требования с цитатами, цена, оценка шансов. Демонстрация на открытых данных.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<a class="skip" href="#cards">К карточкам закупок</a>
+<header class="bar">
+  <div class="wrap bar-in">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>TenderAssistant</a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="#how">Как работает</a><a href="#cards">Карточки</a><a href="#check">Проверка</a><a href="#tenders">Закупки</a><a href="#profile">Профиль</a>
+    </nav>
+    <span class="bar-note" id="bar-note">демонстрация</span>
+  </div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+</header>
+
+<main id="top">
+  <section class="intro">
+    <div class="wrap intro-in">
+      <div class="intro-text">
+        <p class="over">Помощник исполнителя · открытые данные</p>
+        <h1>Стоит ли участвовать <em>в&nbsp;закупке</em></h1>
+        <p class="lead">Программа читает документацию закупки, поднимает историю заказчика и собирает карточку решения. У каждого вывода есть источник, у каждого требования есть дословная цитата из документа.</p>
+        <p class="intro-links"><a class="btn btn-accent" href="#cards">Открыть карточки</a><a class="btn btn-ghost" href="https://github.com/Amontapelir/TenderAssistent" rel="noopener">Код на GitHub</a></p>
+      </div>
+      <dl class="kpis" id="kpis" aria-label="Главные числа"></dl>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <p class="alert" id="load-error" role="alert" hidden></p>
+    <p class="notice" id="demo-note" hidden></p>
+
+    <section id="how" class="block" aria-labelledby="how-h">
+      <header class="block-head">
+        <p class="idx">01</p>
+        <h2 id="how-h">Как из закупки получается решение</h2>
+        <p>Считает программа, читает модель, проверяет снова программа. Вывод без подтверждения в карточку не попадает.</p>
+      </header>
+      <ol class="steps">
+        <li class="step"><span class="step-n">1</span><h3>Профиль компании</h3><p>Контракты из открытого реестра: коды ОКПД2, заказчики, размер, снижение цены на торгах.</p></li>
+        <li class="step"><span class="step-n">2</span><h3>История заказчика</h3><p>Его прошлые закупки: какие похожи, кто их выиграл, насколько падала цена.</p></li>
+        <li class="step"><span class="step-n">3</span><h3>Чтение документации</h3><p>Модель выписывает требования к участнику и рискованные условия, к каждому приводит цитату.</p></li>
+        <li class="step"><span class="step-n">4</span><h3>Проверка цитат</h3><p>Программа ищет каждую цитату в документе. Не нашла: вывод отброшен и показан отдельно.</p></li>
+        <li class="step"><span class="step-n">5</span><h3>Карточка решения</h3><p>Оценка из названных факторов, ожидаемая цена, перечень того, что проверить не удалось.</p></li>
+      </ol>
+    </section>
+
+    <section id="cards" class="block" aria-labelledby="cards-h">
+      <header class="block-head">
+        <p class="idx">02</p>
+        <h2 id="cards-h">Карточки закупок</h2>
+        <p>Три разобранные закупки. Две из них компания уже выиграла: оценка сделана так, как будто исход неизвестен.</p>
+      </header>
+      <div class="bench">
+        <div class="picker" id="picker" role="tablist" aria-label="Закупки"></div>
+        <article class="card" id="card" aria-live="polite"></article>
+      </div>
+    </section>
+
+    <section id="check" class="block" aria-labelledby="check-h">
+      <header class="block-head">
+        <p class="idx">03</p>
+        <h2 id="check-h">Насколько оценке можно верить</h2>
+        <p>Закупки, которые компания выиграла, сравниваются с закупками тех же заказчиков, которые выиграл кто-то другой. Каждая оценивается только по данным, известным до неё.</p>
+      </header>
+      <div id="check-body"></div>
+    </section>
+
+    <section id="tenders" class="block" aria-labelledby="tenders-h">
+      <header class="block-head">
+        <p class="idx">04</p>
+        <h2 id="tenders-h">Закупки по запросу</h2>
+        <p id="tenders-sub"></p>
+      </header>
+      <div id="tenders-body"></div>
+    </section>
+
+    <section id="profile" class="block" aria-labelledby="profile-h">
+      <header class="block-head">
+        <p class="idx">05</p>
+        <h2 id="profile-h">Профиль компании</h2>
+        <p>Построен по контрактам компании как поставщика из открытого реестра. Ничего, кроме реестра, в нём нет.</p>
+      </header>
+      <div id="profile-body"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span>TenderAssistant · учебный проект на открытых данных, сделан по инициативе автора</span>
+    <span>Оценка шансов не является вероятностью победы</span>
+  </div>
+</footer>
+<noscript><p class="alert">Странице нужен JavaScript: она читает готовые файлы с данными и строит из них разделы.</p></noscript>
+<script src="app.js" defer></script>
+</body>
+</html>
