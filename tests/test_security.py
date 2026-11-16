@@ -295,6 +295,14 @@ class PageFiles(unittest.TestCase):
         self.assertIsNone(re.search(r"<script(?![^>]*\ssrc=)", html))  # скриптов без src нет
         self.assertIsNone(re.search(r"\son[a-z]+=", html))
 
+    def test_page_stays_readable_without_animation(self):
+        # В окружении без кадров анимации (фоновая вкладка, снимок, превью ссылки) страница не должна
+        # остаться с нулевыми числами и невидимыми блоками.
+        text = (self.docs / "app.js").read_text(encoding="utf-8")
+        self.assertIn("if (started === null) started = now;", text)  # ноль ставится только по первому кадру
+        self.assertNotIn("node.textContent = format(0);", text)
+        self.assertIn("if (!observed) nodes.forEach", text)  # блоки показываются, если наблюдатель молчит
+
     def test_links_from_data_must_be_https(self):
         text = (self.docs / "app.js").read_text(encoding="utf-8")
         self.assertIn('!href.startsWith("https://")', text)

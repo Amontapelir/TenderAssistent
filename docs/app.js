@@ -129,18 +129,20 @@ function tabs(defs, label) {
 
 const CALM = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** Число дорастает до значения за 0,9 с. При просьбе уменьшить движение стоит сразу. */
+/** Число дорастает до значения за 0,9 с. При просьбе уменьшить движение стоит сразу.
+ * Настоящее число уже стоит в разметке, а ноль подставляется только по первому кадру анимации:
+ * если кадров нет (фоновая вкладка, снимок страницы, превью ссылки), остаётся настоящее число. */
 function countUp(node, target, format) {
   if (CALM || booted || typeof target !== "number") return;
   const whole = Number.isInteger(target);
-  const started = performance.now();
+  let started = null;
   const tick = (now) => {
+    if (started === null) started = now;
     const t = Math.min(1, (now - started) / 900);
     const value = target * (1 - Math.pow(1 - t, 3));
     node.textContent = format(t === 1 ? target : (whole ? Math.round(value) : value));
     if (t < 1) requestAnimationFrame(tick);
   };
-  node.textContent = format(0);
   requestAnimationFrame(tick);
 }
 
@@ -149,7 +151,9 @@ function reveal() {
   if (CALM || !("IntersectionObserver" in window)) return;
   const nodes = document.querySelectorAll(
     ".block-head, .steps, .step, .bench, #check-body > *, #tenders-body > *, #profile-body > *");
+  let observed = false;
   const seen = new IntersectionObserver((entries) => {
+    observed = true;
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       entry.target.classList.add("in");
@@ -163,6 +167,8 @@ function reveal() {
     }
     seen.observe(node);
   });
+  // Если наблюдатель так и не сработал (страницу не рисуют: снимок, превью), блоки не остаются скрытыми.
+  setTimeout(() => { if (!observed) nodes.forEach((node) => node.classList.add("in")); }, 2000);
 }
 
 /** Полоса прокрутки под шапкой и подсветка текущего раздела в меню. */
