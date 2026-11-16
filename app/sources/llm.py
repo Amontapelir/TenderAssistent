@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from app import limits
+from app.sources import http
 
 
 class LlmError(RuntimeError):
@@ -39,11 +40,13 @@ class LlmReply:
 
 def _post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, dict, str]:
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    # Ключ стоит в заголовке: перенаправление не исполняется, чтобы он не ушёл на другой адрес.
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, dict(response.headers), response.read().decode("utf-8")
+        with http.open_no_redirect(request, timeout) as response:
+            body = http.read_capped(response, limits.LLM_MAX_RESPONSE_BYTES, "Модель")
+            return response.status, dict(response.headers), body.decode("utf-8")
     except urllib.error.HTTPError as e:
-        return e.code, dict(e.headers), e.read().decode("utf-8", "replace")
+        return e.code, dict(e.headers), e.read(limits.LLM_MAX_RESPONSE_BYTES).decode("utf-8", "replace")
 
 
 def _wait_seconds(headers: dict) -> float:
@@ -115,6 +118,8 @@ class LlmClient:
             except (urllib.error.URLError, TimeoutError) as e:
                 reason = getattr(e, "reason", e)
                 raise LlmError(f"Модель недоступна: {self._clean(str(reason))}") from None
+            except http.TooLarge as e:
+                raise LlmError(str(e)) from None
             if status == 200:
                 return self._parse(text, attempt, reply_headers)
             # 400 json_validate_failed: модель не смогла собрать JSON, вторая попытка обычно удаётся

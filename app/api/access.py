@@ -30,6 +30,12 @@ def _host_of(header: str) -> str:
     return header.rsplit(":", 1)[0] if ":" in header else header
 
 
+def is_local_host_header(host_header: Optional[str]) -> bool:
+    """Заголовок Host называет этот компьютер. Проверяется у каждого запроса, не только у изменяющих:
+    иначе чужой сайт, подменив адрес через DNS, смог бы читать результаты с этого компьютера."""
+    return bool(host_header) and _is_local_host(_host_of(host_header))
+
+
 def is_local_request(client_host: Optional[str], host_header: Optional[str],
                      origin: Optional[str]) -> bool:
     if not client_host or not _is_local_host(client_host):

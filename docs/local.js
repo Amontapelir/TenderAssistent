@@ -136,6 +136,8 @@ async function watchJob(id) {
 
 async function startAnalysis(regn) {
   const status = document.getElementById("job-status");
+  // Номер приходит и из данных списка: в адрес запроса попадают только цифры.
+  if (!/^\d{8,25}$/.test(String(regn))) { say(status, "Номер закупки состоит из 8–25 цифр.", "bad"); return; }
   try {
     const job = await post(`tenders/${regn}/analyze`, { network: true, download: true, history_lookups: 5 });
     jobNote = "";

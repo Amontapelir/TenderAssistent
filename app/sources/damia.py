@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from app import limits
+from app.sources import http
 
 BASE_URL = "https://api.damia.ru/zakupki/"
 KNOWN_METHODS = ("zsearch", "zakupka", "contract", "zakupki", "contracts", "customer")
@@ -49,8 +50,9 @@ class QuotaLine:
 
 def _http_get(url: str, timeout: float) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": "tender-assistant/0.1"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8")
+    # Ключ стоит в адресе: перенаправление не исполняется, чтобы он не ушёл на другой адрес.
+    with http.open_no_redirect(request, timeout) as response:
+        return http.read_capped(response, limits.DAMIA_MAX_RESPONSE_BYTES, "API закупок").decode("utf-8")
 
 
 class DamiaClient:
@@ -134,6 +136,8 @@ class DamiaClient:
             raise DamiaError(f"HTTP {e.code} от метода {method}: {detail}") from None
         except urllib.error.URLError as e:
             raise DamiaError(f"Сеть недоступна при запросе {method}: {str(e.reason).replace(key, '***')}") from None
+        except http.TooLarge as e:
+            raise DamiaError(f"Метод {method}: {e}") from None
         try:
             data = json.loads(body)
         except json.JSONDecodeError:

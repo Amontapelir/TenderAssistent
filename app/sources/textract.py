@@ -77,9 +77,13 @@ def _zip(data: bytes) -> str:
         raise Unreadable(f"В архиве {len(entries)} файлов, предел {limits.ARCHIVE_MAX_FILES}. "
                          "Архив не прочитан.")
     texts: list[str] = []
+    total = 0  # архив размером 30 МБ может содержать намного больше: общий объём ограничен
     for info in entries:
         if info.file_size > limits.DOC_MAX_BYTES:
             continue
+        if total + info.file_size > limits.ARCHIVE_MAX_TOTAL_BYTES:
+            break  # остальные файлы архива не читаются
+        total += info.file_size
         try:
             with archive.open(info) as stream:
                 inner = stream.read(limits.DOC_MAX_BYTES + 1)
