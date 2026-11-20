@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-15T15:12:12",
+  "generated_at": "2026-11-20T23:16:09",
   "company_inn": "7713076301",
   "files": [
     "profile.json",
+    "shortlist.json",
     "tenders.json",
     "backtest.json",
     "cards/0152200004726000906.json",

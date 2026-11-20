@@ -299,6 +299,43 @@ function localSearchForm(current) {
     host);
 }
 
+/** Запуск подборки: сначала цена в запросах по плану сервера, потом подтверждение. */
+function localShortlistForm(current) {
+  const host = el("div", "action-host");
+  const go = async () => {
+    say(host, "Считаю цену подборки…");
+    let plan;
+    try {
+      plan = await api("shortlist/plan");
+    } catch (error) {
+      say(host, error.message, "bad");
+      return;
+    }
+    if (!plan.words.length) { say(host, "В названиях контрактов компании нет слов для поиска: сначала постройте профиль.", "bad"); return; }
+    const words = plan.words.map((w) => w.word).join(", ");
+    const text = `Подборка: поиск закупок, опубликованных с ${day(plan.from_date)}, по словам из профиля (${words}). ` +
+      `Потратит запросов к DaMIA (метод zsearch): ${plan.to_spend} из ${plan.words.length}; остальные ответы уже на диске. ` +
+      `До потолка осталось ${plan.quota_left}.` +
+      (plan.to_spend > plan.quota_left ? " Запросов не хватит на все слова: поиск остановится, найденное сохранится." : "");
+    confirmIn(host, text, plan.to_spend ? "Подтвердить и искать" : "Построить из сохранённого", async () => {
+      say(host, "Ищу закупки и считаю баллы…");
+      try {
+        await post("shortlist/run", { network: true, queries: plan.words.length });
+        await main();
+        await refreshQuota();
+      } catch (error) {
+        say(host, error.message, "bad");
+      }
+    });
+  };
+  return el("div", "panel panel-pad search-form",
+    el("p", "label", current ? "Обновить подборку" : "Построить подборку"),
+    el("p", "", "Программа ищет открытые закупки по самым частым словам из названий контрактов компании, " +
+      "ставит каждой балл и оставляет лучшие. Закупки с высоким баллом можно разобрать подробно кнопкой в строке."),
+    button("btn btn-ink btn-sm", go, current ? "Обновить подборку" : "Построить подборку"),
+    host);
+}
+
 /** Если после перезагрузки страницы на сервере идёт анализ, страница снова показывает его ход. */
 async function resumeJob() {
   try {

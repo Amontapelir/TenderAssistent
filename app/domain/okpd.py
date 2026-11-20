@@ -83,6 +83,24 @@ def title_terms(titles: Iterable[str], top: int) -> list[tuple[str, int]]:
     return [(s, n) for s, n in counter.most_common(top) if n >= 2]
 
 
+def title_words(titles: Iterable[str], top: int) -> list[str]:
+    """Целые слова для поискового запроса: самые частые в названиях контрактов компании.
+
+    Слова считаются по основам (как в title_terms), а в запрос идёт самая частая полная форма
+    слова из названий. Основа, встретившаяся меньше двух раз, не берётся."""
+    counter: Counter[str] = Counter()
+    forms: dict[str, Counter[str]] = {}
+    for title in titles:
+        words = _WORD.findall((title or "").lower().replace("ё", "е"))
+        for stem in {w[:STEM_LEN] for w in words} - _STOP:
+            counter[stem] += 1
+        for word in words:
+            if word[:STEM_LEN] not in _STOP:
+                forms.setdefault(word[:STEM_LEN], Counter())[word] += 1
+    ranked = sorted((s for s, n in counter.items() if n >= 2), key=lambda s: (-counter[s], s))
+    return [min(forms[s].items(), key=lambda kv: (-kv[1], kv[0]))[0] for s in ranked[:max(0, top)]]
+
+
 def text_match(title: str, terms: Iterable[tuple[str, int]]) -> float:
     """Оценка 0..1: насколько название закупки похоже на названия контрактов компании."""
     weights = dict(terms)

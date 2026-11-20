@@ -325,7 +325,7 @@ class Export(unittest.TestCase):
         self.assertEqual(files, [f"cards/{REGN}.json", "index.json", "profile.json"])
         self.assertEqual(sorted(index.files), [f"cards/{REGN}.json", "profile.json"])
         self.assertEqual([(c.regn, c.file) for c in index.cards], [(REGN, f"cards/{REGN}.json")])
-        self.assertEqual(len(index.missing), 2)  # списка закупок и проверки ещё нет
+        self.assertEqual(len(index.missing), 3)  # подборки, списка закупок и проверки ещё нет
         saved = ExportIndex.model_validate_json((self.target / "index.json").read_text("utf-8"))
         self.assertEqual(saved.cards[0].title, index.cards[0].title)
         AnalysisCard.model_validate_json((self.target / index.cards[0].file).read_text("utf-8"))

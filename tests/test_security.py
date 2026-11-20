@@ -101,7 +101,7 @@ class Guard(unittest.TestCase):
         # Точный список: новый изменяющий запрос придётся добавить сюда осознанно, вместе с защитой.
         self.assertEqual(sorted(r.path for r in changing), sorted([
             "/api/profile/build", "/api/tenders/search", "/api/tenders/{regn}/documents/fetch", "/api/tenders/{regn}/analyze",
-            "/api/model/check", "/api/backtest/run", "/api/backtest/compare", "/api/export"]))
+            "/api/model/check", "/api/backtest/run", "/api/backtest/compare", "/api/export", "/api/shortlist/run"]))
         for route in changing:
             with self.subTest(path=route.path):
                 self.assertIn(routes.local_only, [d.call for d in route.dependant.dependencies])

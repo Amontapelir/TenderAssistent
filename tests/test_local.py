@@ -67,7 +67,7 @@ class LiveIndex(unittest.TestCase):
         empty = Store(Path(self.enterContext(tempfile.TemporaryDirectory())))
         live = export.describe(empty, US)
         self.assertEqual((live.files, live.cards), ([], []))
-        self.assertEqual(len(live.missing), 4)  # три файла и карточки
+        self.assertEqual(len(live.missing), 5)  # четыре файла и карточки
 
     def test_route(self):
         live = routes.live_index(self.store)

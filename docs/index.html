@@ -19,7 +19,7 @@
   <div class="wrap bar-in">
     <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>TenderAssistant</a>
     <nav class="nav" aria-label="Разделы">
-      <a href="#local" id="nav-local" hidden>Управление</a><a href="#how">Как работает</a><a href="#cards">Карточки</a><a href="#check">Проверка</a><a href="#tenders">Закупки</a><a href="#profile">Профиль</a>
+      <a href="#local" id="nav-local" hidden>Управление</a><a href="#how">Как работает</a><a href="#cards">Карточки</a><a href="#shortlist">Подборка</a><a href="#check">Проверка</a><a href="#tenders">Закупки</a><a href="#profile">Профиль</a>
     </nav>
     <span class="bar-note" id="bar-note">демонстрация</span>
   </div>
@@ -79,9 +79,18 @@
       </div>
     </section>
 
-    <section id="check" class="block" aria-labelledby="check-h">
+    <section id="shortlist" class="block" aria-labelledby="shortlist-h">
       <header class="block-head">
         <p class="idx">03</p>
+        <h2 id="shortlist-h">Подборка: что смотреть первым</h2>
+        <p id="shortlist-sub"></p>
+      </header>
+      <div id="shortlist-body"></div>
+    </section>
+
+    <section id="check" class="block" aria-labelledby="check-h">
+      <header class="block-head">
+        <p class="idx">04</p>
         <h2 id="check-h">Насколько оценке можно верить</h2>
         <p>Закупки, которые компания выиграла, сравниваются с закупками тех же заказчиков, которые выиграл кто-то другой. Каждая оценивается только по данным, известным до неё.</p>
       </header>
@@ -90,7 +99,7 @@
 
     <section id="tenders" class="block" aria-labelledby="tenders-h">
       <header class="block-head">
-        <p class="idx">04</p>
+        <p class="idx">05</p>
         <h2 id="tenders-h">Закупки по запросу</h2>
         <p id="tenders-sub"></p>
       </header>
@@ -99,7 +108,7 @@
 
     <section id="profile" class="block" aria-labelledby="profile-h">
       <header class="block-head">
-        <p class="idx">05</p>
+        <p class="idx">06</p>
         <h2 id="profile-h">Профиль компании</h2>
         <p>Построен по контрактам компании как поставщика из открытого реестра. Ничего, кроме реестра, в нём нет.</p>
       </header>

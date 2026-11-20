@@ -6,10 +6,10 @@ from pydantic import BaseModel, Field
 
 from app import __version__, config, limits
 from app.api.access import is_local_request
-from app.pipeline import analyze, backtest, export, steps
+from app.pipeline import analyze, backtest, export, shortlist, steps
 from app.pipeline.jobs import Busy, Job, Jobs
 from app.schemas.card import (AnalysisCard, BacktestFile, CompareFile, DocumentsFile, ExportIndex,
-                              ModelCheck, ProfileFile, TendersFile)
+                              ModelCheck, ProfileFile, ShortlistFile, ShortlistPlan, TendersFile)
 from app.sources.damia import DamiaClient, DamiaError, QuotaExceeded, QuotaLine
 from app.sources.documents import Downloader
 from app.sources.llm import LlmClient, LlmError, LlmNotConfigured, LlmRateLimited
@@ -247,6 +247,34 @@ def tenders_search(body: SearchTenders, client: DamiaClient = Depends(get_client
                    store: Store = Depends(get_store)) -> TendersFile:
     return _run(lambda: steps.search_tenders(client, store, body.query, body.from_date,
                                              network=body.network))
+
+
+class RunShortlist(BaseModel):
+    network: bool = False  # разрешить запросы к API (каждый новый поиск тратит один запрос zsearch)
+    queries: int = Field(limits.SHORTLIST_QUERIES, ge=1, le=limits.SHORTLIST_QUERIES)
+
+
+@router.get("/shortlist", response_model=ShortlistFile)
+def shortlist_result(store: Store = Depends(get_store)) -> ShortlistFile:
+    saved = store.load("shortlist", ShortlistFile)
+    if saved is None:
+        raise HTTPException(404, "Подборка ещё не строилась: POST /api/shortlist/run.")
+    return saved
+
+
+@router.get("/shortlist/plan", response_model=ShortlistPlan)
+def shortlist_plan(queries: int = limits.SHORTLIST_QUERIES, client: DamiaClient = Depends(get_client)
+                   ) -> ShortlistPlan:
+    """Слова поиска и цена запуска в запросах. Сеть не используется, квота не тратится."""
+    queries = max(1, min(queries, limits.SHORTLIST_QUERIES))
+    return _run(lambda: shortlist.plan(client, config.company_inn(), queries=queries))
+
+
+@router.post("/shortlist/run", response_model=ShortlistFile, dependencies=[Depends(local_only)])
+def shortlist_run(body: RunShortlist, client: DamiaClient = Depends(get_client),
+                  store: Store = Depends(get_store)) -> ShortlistFile:
+    return _run(lambda: shortlist.run(client, store, config.company_inn(), network=body.network,
+                                      queries=body.queries))
 
 
 @router.get("/backtest", response_model=BacktestFile)

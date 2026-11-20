@@ -14,6 +14,7 @@ from app.domain.customer_history import CustomerHistory
 from app.domain.okpd import AreaMatch
 from app.domain.prices import PriceEstimate
 from app.domain.profile import CompanyProfile
+from app.domain.shortlist import Pick, QueryLine, Quality
 from app.sources.documents import StoredDoc
 
 SCHEMA_VERSION = 1
@@ -174,6 +175,36 @@ class TendersFile(BaseModel):
     by_law: dict[str, int]
     items: list[Candidate]
     limitations: list[str] = Field(default_factory=list)
+
+
+class ShortlistFile(BaseModel):
+    """Подборка закупок: лучшие из найденных по словам из профиля компании."""
+
+    schema_version: int = SCHEMA_VERSION
+    generated_at: str
+    from_date: str
+    queries: list[QueryLine]
+    requests_spent: int  # сколько запросов к API потратил этот запуск (ответы с диска не считаются)
+    found_total: int  # разных закупок после склейки поисков
+    open_total: int  # из них с открытым приёмом заявок
+    items: list[Pick]
+    quality: Optional[Quality] = None
+    limitations: list[str] = Field(default_factory=list)
+
+
+class PlanLine(BaseModel):
+    word: str
+    cached: bool  # ответ уже на диске: запрос не потратится
+
+
+class ShortlistPlan(BaseModel):
+    """Что сделает подборка, если её запустить: слова, цена в запросах, остаток квоты."""
+
+    from_date: str
+    words: list[PlanLine]
+    to_spend: int
+    quota_left: int  # осталось запросов метода zsearch до потолка приложения
+    budget: int
 
 
 class BacktestFile(BaseModel):

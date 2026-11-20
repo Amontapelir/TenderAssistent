@@ -130,12 +130,17 @@ class DamiaClient:
         self._spend(method)  # считаем до отправки: неудачный запрос тоже мог быть засчитан
         url = f"{BASE_URL}{method}?{urllib.parse.urlencode({**params, 'key': key})}"
         try:
-            body = self._http_get(url, 60)
+            body = self._http_get(url, limits.DAMIA_TIMEOUT)
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:300].replace(key, "***")
             raise DamiaError(f"HTTP {e.code} от метода {method}: {detail}") from None
         except urllib.error.URLError as e:
             raise DamiaError(f"Сеть недоступна при запросе {method}: {str(e.reason).replace(key, '***')}") from None
+        except (TimeoutError, OSError) as e:
+            # Обрыв во время чтения ответа приходит не как URLError, а как TimeoutError или OSError.
+            raise DamiaError(
+                f"Метод {method} не ответил ({type(e).__name__}: {str(e).replace(key, '***')}; "
+                f"ожидание до {limits.DAMIA_TIMEOUT} с). Запрос засчитан в квоту, ответ не сохранён.") from None
         except http.TooLarge as e:
             raise DamiaError(f"Метод {method}: {e}") from None
         try:

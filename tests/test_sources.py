@@ -113,6 +113,18 @@ class Client(unittest.TestCase):
             client.call("customer", req=INN)
         self.assertNotIn(KEY, str(caught.exception))
 
+    def test_timeout_while_reading_is_a_source_error(self):
+        # Обрыв при чтении ответа приходит как TimeoutError, а не URLError: он не должен ронять сценарий.
+        for error in (TimeoutError("The read operation timed out"), ConnectionResetError(f"сброс key={KEY}")):
+            with self.subTest(error=type(error).__name__):
+                client, http = self.client(error)
+                with self.assertRaises(DamiaError) as caught:
+                    client.call("zsearch", q="связи")
+                self.assertIn("засчитан в квоту", str(caught.exception))
+                self.assertNotIn(KEY, str(caught.exception))
+                self.assertEqual(len(http.urls), 1)
+                self.assertIsNone(client.cached("zsearch", q="связи"))
+
     def test_unknown_method(self):
         client, http = self.client("{}")
         with self.assertRaises(DamiaError):

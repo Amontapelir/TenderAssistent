@@ -12,7 +12,7 @@ let LIVE = false;
 let booted = false; // после первой отрисовки числа не пересчитываются заново
 let currentOpen = null; // открыть карточку по номеру; ставит renderCards
 const LIVE_URL = { "index.json": "api/index", "profile.json": "api/profile",
-  "tenders.json": "api/tenders", "backtest.json": "api/backtest" };
+  "tenders.json": "api/tenders", "backtest.json": "api/backtest", "shortlist.json": "api/shortlist" };
 
 const LEVEL = { high: "высокий", medium: "средний", low: "низкий", unknown: "не определён" };
 const AREA = { high: "совпадает", medium: "близка", low: "смежная", none: "не совпадает", unknown: "не определена" };
@@ -150,7 +150,7 @@ function countUp(node, target, format) {
 function reveal() {
   if (CALM || !("IntersectionObserver" in window)) return;
   const nodes = document.querySelectorAll(
-    ".block-head, .steps, .step, .bench, #check-body > *, #tenders-body > *, #profile-body > *");
+    ".block-head, .steps, .step, .bench, #shortlist-body > *, #check-body > *, #tenders-body > *, #profile-body > *");
   let observed = false;
   const seen = new IntersectionObserver((entries) => {
     observed = true;
@@ -602,6 +602,63 @@ function renderCheck(backtest) {
     limits("Как читать эти числа", backtest.limitations));
 }
 
+// --- подборка ---
+
+function renderShortlistEmpty() {
+  document.getElementById("shortlist-sub").textContent = "Подборка появится после первого запуска.";
+  fill(document.getElementById("shortlist-body"), localShortlistForm(null),
+    el("div", "block-gap"), el("p", "panel empty", "Подборка ещё не строилась."));
+}
+
+function renderShortlist(list, index) {
+  const analyzed = new Set(index.cards.map((c) => c.regn));
+  document.getElementById("shortlist-sub").textContent =
+    `Поиск по ${list.queries.length} словам из профиля компании, закупки, опубликованные с ${day(list.from_date)}: ` +
+    `найдено ${number(list.found_total)}, приём заявок идёт по ${number(list.open_total)}. Показаны лучшие ${list.items.length}. ` +
+    "Балл говорит, насколько закупка похожа на то, что компания уже делает. Это порядок просмотра, не прогноз победы.";
+
+  const q = list.quality;
+  const sep = q ? q.separation : null;
+  const verdict = q ? (VERDICT[q.verdict] || [q.verdict, ""]) : null;
+  const quality = q ? el("div", "verdict-note",
+    el("p", "label", "Как проверен этот балл"),
+    el("p", "", `Тот же балл посчитан для ${number(q.won + q.other)} закупок прошлого: ${number(q.won)} выиграла компания, ${number(q.other)} чужие у тех же заказчиков. ` +
+      `Балл ставит выигранную закупку выше чужой в ${percent(sep.value)} пар (интервал ${percent(sep.low)}–${percent(sep.high)}; 50% значило бы «не различает»). ` +
+      `Среди ${number(q.top_n)} закупок с самым высоким баллом выигранных компанией ${percent(q.top_won_share)}, в среднем по всем ${percent(q.base_won_share)}.`),
+    el("p", "small", "Это проверка «похоже ли на дело компании», а не «выиграет ли она»: чужие закупки этих заказчиков в основном не из области компании, " +
+      "и балл отличает их по названию. Победу он не предсказывает. Точную оценку даёт карточка закупки после разбора документации."),
+    el("p", "small", verdict ? ["Вердикт проверки: ", tag(verdict[0], verdict[1])] : null)) : null;
+
+  const words = el("div", "chips", list.queries.map((w) => tag(`${w.word}: ${number(w.found)}${w.more_pages ? "+" : ""}`)));
+
+  const rows = el("tbody", "", list.items.map((p, i) => {
+    const c = p.candidate;
+    const title = analyzed.has(c.regn) ? el("a", "", c.title) : el("span", "", c.title);
+    if (analyzed.has(c.regn)) title.href = `#card=${c.regn}`;
+    return el("tr", "",
+      el("td", "r num", String(i + 1)),
+      el("td", "t-title", title,
+        el("small", "", `${c.customer_name || "заказчик не указан"} · № ${c.regn} · `,
+          link(`https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=${encodeURIComponent(c.regn)}`, "найти на zakupki.gov.ru"))),
+      el("td", "r", money(c.price)),
+      el("td", "r", day(c.deadline)),
+      el("td", "", el("div", "meter", sized(el("i", ""), "--w", p.score / 100), el("span", "num", String(p.score)))),
+      el("td", "", bullets(p.reasons), p.larger_than_usual ? tag("крупнее обычного", "warn") : null,
+        analyzed.has(c.regn) ? tag("есть карточка", "accent") : null),
+      LIVE ? el("td", "r", localRowAction(c.regn, analyzed.has(c.regn))) : null);
+  }));
+
+  fill(document.getElementById("shortlist-body"),
+    LIVE ? localShortlistForm(list) : null, LIVE ? el("div", "block-gap") : null,
+    el("p", "small", "Слова поиска и сколько закупок вернул каждый (знак «+»: есть ещё страницы, прочитана первая):"), words, el("div", "block-gap-s"),
+    el("div", "table-wrap", el("table", "",
+      el("thead", "", el("tr", "", el("th", "r", "№"), el("th", "", "Закупка"), el("th", "r", "Начальная цена"),
+        el("th", "r", "Заявки до"), el("th", "", "Балл"), el("th", "", "Почему в подборке"),
+        LIVE ? el("th", "r", "Действие") : null)), rows)),
+    el("div", "block-gap"), quality, quality ? el("div", "block-gap") : null,
+    limits("Ограничения подборки", list.limitations));
+}
+
 // --- список закупок ---
 
 function renderTendersEmpty() {
@@ -704,17 +761,21 @@ async function main() {
     if (!booted && typeof detectLocal === "function") LIVE = await detectLocal();
     const index = await load("index.json");
     const need = (name) => (index.files.includes(name) ? load(name) : null);
-    const [profile, tenders, backtest] = await Promise.all([need("profile.json"), need("tenders.json"), need("backtest.json")]);
+    const [profile, tenders, backtest, shortlist] = await Promise.all([
+      need("profile.json"), need("tenders.json"), need("backtest.json"), need("shortlist.json")]);
     const missing = (id, text) => document.getElementById(id).replaceChildren(el("p", "panel empty", text));
     const none = (what) => (LIVE ? `${what} ещё нет: выполните действие в разделе «Управление».` : `${what} в пакете нет.`);
     renderIntro(index, profile, backtest);
     renderCards(index);
+    if (shortlist) renderShortlist(shortlist, index);
+    else if (LIVE) renderShortlistEmpty();
+    else missing("shortlist-body", none("Подборки"));
     if (backtest) renderCheck(backtest); else missing("check-body", none("Проверки на прошлых закупках"));
     if (tenders) renderTenders(tenders, index);
     else if (LIVE) renderTendersEmpty();
     else missing("tenders-body", none("Списка закупок"));
     if (profile) renderProfile(profile); else missing("profile-body", none("Профиля"));
-    if (LIVE) renderLocal(index, { profile, tenders, backtest });
+    if (LIVE) renderLocal(index, { profile, tenders, backtest, shortlist });
     reveal();
     if (LIVE && !booted) resumeJob();
     booted = true;

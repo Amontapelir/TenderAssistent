@@ -10,10 +10,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.schemas.card import (AnalysisCard, BacktestFile, ExportCard, ExportIndex, ProfileFile,
-                              TendersFile)
+                              ShortlistFile, TendersFile)
 from app.storage.files import Store
 
 _PARTS = (("profile", ProfileFile, "профиль компании"),
+          ("shortlist", ShortlistFile, "подборка закупок"),
           ("tenders", TendersFile, "список закупок"),
           ("backtest", BacktestFile, "проверка на прошлых закупках"))
 
