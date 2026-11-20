@@ -631,32 +631,106 @@ function renderShortlist(list, index) {
 
   const words = el("div", "chips", list.queries.map((w) => tag(`${w.word}: ${number(w.found)}${w.more_pages ? "+" : ""}`)));
 
-  const rows = el("tbody", "", list.items.map((p, i) => {
+  const item = (p, rank) => {
     const c = p.candidate;
-    const title = analyzed.has(c.regn) ? el("a", "", c.title) : el("span", "", c.title);
-    if (analyzed.has(c.regn)) title.href = `#card=${c.regn}`;
-    return el("tr", "",
-      el("td", "r num", String(i + 1)),
-      el("td", "t-title", title,
-        el("small", "", `${c.customer_name || "заказчик не указан"} · № ${c.regn} · `,
+    const card = analyzed.has(c.regn);
+    const node = el("li", "sl-item");
+    const title = card ? el("a", "", c.title) : el("span", "", c.title);
+    if (card) title.href = `#card=${c.regn}`;
+    let more = null;
+    if (c.title.length > 150) {
+      more = button("sl-more", () => {
+        const open = node.classList.toggle("is-open");
+        more.setAttribute("aria-expanded", String(open));
+        more.textContent = open ? "свернуть" : "название полностью";
+      }, "название полностью");
+      more.setAttribute("aria-expanded", "false");
+    }
+    const kind = p.score >= 55 ? "hi" : p.score >= 40 ? "mid" : "lo";
+    const score = el("div", `sl-score sl-score-${kind}`, el("b", "", String(p.score)), el("span", "", "балл"), el("small", "", `№ ${rank}`));
+    score.setAttribute("aria-label", `Место ${rank}, балл ${p.score} из 100`);
+    fill(node,
+      score,
+      el("div", "sl-main",
+        el("h3", "sl-title", title), more,
+        el("p", "sl-customer", c.customer_name || "заказчик не указан"),
+        el("div", "sl-meta",
+          el("span", "sl-price", c.price ? money(c.price) : "цена не указана"),
+          el("span", "sl-date", `заявки до ${day(c.deadline)}`), deadlineTag(c.deadline),
+          tag(`${c.law}-ФЗ`), p.larger_than_usual ? tag("крупнее обычного", "warn") : null,
+          card ? tag("есть карточка", "accent") : null),
+        el("ul", "sl-why", p.reasons.map((r) => el("li", "", r))),
+        el("p", "sl-foot", `№ ${c.regn} · `,
           link(`https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=${encodeURIComponent(c.regn)}`, "найти на zakupki.gov.ru"))),
-      el("td", "r", money(c.price)),
-      el("td", "r", day(c.deadline)),
-      el("td", "", el("div", "meter", sized(el("i", ""), "--w", p.score / 100), el("span", "num", String(p.score)))),
-      el("td", "", bullets(p.reasons), p.larger_than_usual ? tag("крупнее обычного", "warn") : null,
-        analyzed.has(c.regn) ? tag("есть карточка", "accent") : null),
-      LIVE ? el("td", "r", localRowAction(c.regn, analyzed.has(c.regn))) : null);
-  }));
+      LIVE ? el("div", "sl-act", localRowAction(c.regn, card)) : null);
+    return node;
+  };
+
+  // Фильтр по закону: у закупок по разным законам разные правила участия.
+  const laws = [...new Set(list.items.map((p) => p.candidate.law))].sort((a, b) => Number(a) - Number(b));
+  let law = "";
+  const holder = el("ol", "sl-list");
+  const count = el("span", "small", "");
+  const chips = [["", "Все законы"], ...laws.map((l) => [l, `${l}-ФЗ`])].map(([value, label]) => {
+    const b = button("chip", () => { law = value; draw(); }, label,
+      el("span", "num", String(value ? list.items.filter((p) => p.candidate.law === value).length : list.items.length)));
+    b.dataset.law = value;
+    return b;
+  });
+  function draw() {
+    chips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.law === law)));
+    const shown = list.items.map((p, i) => [p, i + 1]).filter(([p]) => !law || p.candidate.law === law);
+    count.textContent = `Показано ${shown.length} из ${list.items.length}`;
+    fill(holder, shown.map(([p, rank]) => item(p, rank)));
+    if (holder.isConnected) hideNeedlessMore();
+  }
+  // Кнопка «название полностью» нужна, только если название действительно обрезано.
+  function hideNeedlessMore() {
+    for (const node of holder.querySelectorAll(".sl-item:not(.is-open)")) {
+      const title = node.querySelector(".sl-title");
+      const more = node.querySelector(".sl-more");
+      if (more && title.scrollHeight <= title.clientHeight + 1) more.hidden = true;
+    }
+  }
+  draw();
 
   fill(document.getElementById("shortlist-body"),
     LIVE ? localShortlistForm(list) : null, LIVE ? el("div", "block-gap") : null,
-    el("p", "small", "Слова поиска и сколько закупок вернул каждый (знак «+»: есть ещё страницы, прочитана первая):"), words, el("div", "block-gap-s"),
-    el("div", "table-wrap", el("table", "",
-      el("thead", "", el("tr", "", el("th", "r", "№"), el("th", "", "Закупка"), el("th", "r", "Начальная цена"),
-        el("th", "r", "Заявки до"), el("th", "", "Балл"), el("th", "", "Почему в подборке"),
-        LIVE ? el("th", "r", "Действие") : null)), rows)),
+    laws.length > 1 ? el("div", "toolbar sl-tools", chips, count) : null,
+    holder,
     el("div", "block-gap"), quality, quality ? el("div", "block-gap") : null,
+    el("div", "sl-words", el("p", "label", "Как искали"),
+      el("p", "small", `Слова из названий контрактов компании и сколько закупок вернул каждый поиск. Знак «+»: есть ещё страницы, прочитана первая.`),
+      words),
+    el("div", "block-gap"),
     limits("Ограничения подборки", list.limitations));
+  hideNeedlessMore();
+}
+
+/** Сколько дней до окончания приёма заявок, считая от сегодняшнего дня у читателя. */
+function daysLeft(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || "");
+  if (!m) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) - today) / 86400000);
+}
+
+function plural(n, one, few, many) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b === 1) return one;
+  if (b > 1 && b < 5) return few;
+  return many;
+}
+
+function deadlineTag(value) {
+  const n = daysLeft(value);
+  if (n === null) return tag("срок не указан");
+  if (n < 0) return tag("приём закончился", "bad");
+  if (n === 0) return tag("последний день", "bad");
+  const text = `осталось ${n} ${plural(n, "день", "дня", "дней")}`;
+  return tag(text, n <= 3 ? "warn" : "");
 }
 
 // --- список закупок ---
